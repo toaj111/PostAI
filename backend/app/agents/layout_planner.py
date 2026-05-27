@@ -195,6 +195,17 @@ class SpatialLayoutPlanner:
             "required text.\n"
             "- If no image is needed, make the poster work through type, shape, "
             "colour, or texture.\n\n"
+            "STABLE ELEMENT IDs (required for future refinement):\n"
+            "- Every major element MUST carry a unique id attribute that matches "
+            "its semantic role, e.g.:\n"
+            '  <div id="headline" data-role="headline">...</div>\n'
+            '  <div id="subtitle" data-role="subhead">...</div>\n'
+            '  <div id="key-visual" data-role="visual">...</div>\n'
+            '  <div id="cta" data-role="cta">...</div>\n'
+            "- Use these exact id values for the corresponding elements. "
+            "Do NOT use auto-generated or random IDs.\n"
+            "- Add data-role attributes matching the element's role from the "
+            "PosterBriefV2.\n\n"
             "IMPORTANT: Return ONLY the HTML source, starting with <!DOCTYPE html>. "
             "Do NOT wrap it in markdown code fences."
         )

@@ -67,9 +67,6 @@ class GraphRunner:
             state.style = await retry_async(lambda: self.style_director.run(state), attempts=3)
             yield event("agent_complete", {"job_id": state.job_id, "agent": "StyleDirector", "result": state.style.model_dump(mode="json")})
 
-            best_response: GenerateResponse | None = None
-            best_score = -1
-
             while state.iteration_count < state.max_iterations:
                 # ── Layout (HTML) ──
                 state.stage = GraphStage.layout
@@ -112,10 +109,6 @@ class GraphRunner:
                     "vision_reasoning": state.vision_reasoning,
                 })
 
-                if critique.score > best_score:
-                    best_score = critique.score
-                    best_response = self.build_response(state)
-
                 # ── Decision ──
                 decision = route_after_critique(state)
                 if decision.action == RouteAction.final:
@@ -138,7 +131,7 @@ class GraphRunner:
 
             # ── Finalise ──
             state.stage = GraphStage.final
-            response = self._finalize_response(best_response, state)
+            response = self._finalize_response(state)
             yield event("final_output", response.model_dump(mode="json"))
             yield event("job_finished", {"job_id": state.job_id, "stage": state.stage.value})
 
@@ -185,11 +178,11 @@ class GraphRunner:
             critiques=state.feedback_history,
         )
 
-    def _finalize_response(self, best_response: GenerateResponse | None, state: GraphState) -> GenerateResponse:
-        response = best_response or self.build_response(state)
+    def _finalize_response(self, state: GraphState) -> GenerateResponse:
+        response = self.build_response(state)
         latest = state.feedback_history[-1] if state.feedback_history else None
         return response.model_copy(update={
             "warnings": list(state.warnings),
             "critiques": list(state.feedback_history),
-            "score": response.score if response.score is not None else (latest.score if latest else None),
+            "score": latest.score if latest else response.score,
         })

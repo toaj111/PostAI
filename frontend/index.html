@@ -159,6 +159,19 @@
             </p>
           </div>
 
+          <div class="refine-panel" id="refinePanel">
+            <label class="field">
+              <span>微调提示词</span>
+              <textarea
+                id="refinePrompt"
+                rows="2"
+                placeholder="例如：把标题往下移动一点，主视觉放大，保持极简风格"
+              ></textarea>
+            </label>
+            <button id="refineBtn" type="button" disabled>微调当前海报</button>
+            <span id="refineStatus" class="refine-status hidden"></span>
+          </div>
+
           <pre id="logArea" class="log" aria-live="polite"></pre>
         </section>
       </section>

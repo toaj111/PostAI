@@ -86,7 +86,7 @@ _FALLBACK_TYPE_ONLY = """<!DOCTYPE html>
 <div class="bg"></div>
 <div class="accent"></div>
 <div class="content">
-  <div class="title">{title}</div>
+  <div id="headline" data-role="headline" class="title">{title}</div>
 </div>
 </body>
 </html>"""
@@ -110,12 +110,12 @@ _FALLBACK_IMAGE_LED = """<!DOCTYPE html>
 </head>
 <body>
 <div class="bg"></div>
-<div class="visual">
+<div id="key-visual" data-role="visual" class="visual">
   <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="none" stroke="white" stroke-width="1.5" opacity="0.4"/></svg>
 </div>
 <div class="text-zone">
-  <div class="title">{title}</div>
-  <div class="subtitle">{subtitle}</div>
+  <div id="headline" data-role="headline" class="title">{title}</div>
+  <div id="subtitle" data-role="subhead" class="subtitle">{subtitle}</div>
 </div>
 </body>
 </html>"""
@@ -141,9 +141,9 @@ _FALLBACK_EVENT_INFO = """<!DOCTYPE html>
 <div class="bg"></div>
 <div class="left-bar"></div>
 <div class="content">
-  <div class="title">{title}</div>
-  <div class="info">{subtitle}</div>
-  <div class="cta">{cta}</div>
+  <div id="headline" data-role="headline" class="title">{title}</div>
+  <div id="subtitle" data-role="subhead" class="info">{subtitle}</div>
+  <div id="cta" data-role="cta" class="cta">{cta}</div>
 </div>
 </body>
 </html>"""
@@ -171,14 +171,14 @@ _FALLBACK_CTA_CAMPAIGN = """<!DOCTYPE html>
 <body>
 <div class="bg"></div>
 <div class="content">
-  <div class="title">{title}</div>
-  <div class="subtitle">{subtitle}</div>
-  <div class="visual">
+  <div id="headline" data-role="headline" class="title">{title}</div>
+  <div id="subtitle" data-role="subhead" class="subtitle">{subtitle}</div>
+  <div id="key-visual" data-role="visual" class="visual">
     <svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="none" stroke="white" stroke-width="2"/>
     <circle cx="35" cy="40" r="5" fill="white"/><circle cx="65" cy="40" r="5" fill="white"/>
     <path d="M35 65 Q50 80 65 65" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/></svg>
   </div>
-  <div class="cta">{cta}</div>
+  <div id="cta" data-role="cta" class="cta">{cta}</div>
 </div>
 </body>
 </html>"""
