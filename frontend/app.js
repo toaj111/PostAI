@@ -12,6 +12,7 @@ const promptEl = document.getElementById("prompt");
 const widthEl = document.getElementById("width");
 const heightEl = document.getElementById("height");
 const maxIterationsEl = document.getElementById("maxIterations");
+const minIterationsEl = document.getElementById("minIterations");
 const targetScoreEl = document.getElementById("targetScore");
 const addReferenceBtn = document.getElementById("addReferenceBtn");
 const referenceListEl = document.getElementById("referenceList");
@@ -175,10 +176,11 @@ async function collectReferenceImages() {
 function getPayload() {
   const referenceImages = collectReferenceImages();
   return {
-    prompt: promptEl.value.trim() || "制作一张科技风 AI 会议海报",
+    prompt: promptEl.value.trim() || "做一张当代艺术展海报，极简、不要按钮",
     width: Number(widthEl.value) || 768,
     height: Number(heightEl.value) || 1152,
     max_iterations: Number(maxIterationsEl.value) || 2,
+    min_iterations: Number(minIterationsEl.value) || 0,
     target_score: Number(targetScoreEl.value) || 85,
     reference_images: referenceImages,
   };
@@ -258,6 +260,7 @@ async function runGenerate() {
 
     const data = await resp.json();
     appendLog(`生成完成: job_id=${data.job_id}, score=${data.score ?? "N/A"}`);
+    updateCurrentState(data);
 
     if (data.image_url) {
       renderPreviewFromImageUrl(data.image_url);
@@ -337,6 +340,7 @@ async function runStream() {
 
         if (eventName === "render_preview" && payload.image_url) {
           renderPreviewFromImageUrl(payload.image_url);
+          updateCurrentState(payload);
         }
 
         if (eventName === "final_output") {
@@ -345,6 +349,7 @@ async function runStream() {
           } else if (payload.final_image) {
             renderPreviewFromBase64(payload.final_image);
           }
+          updateCurrentState(payload);
           appendLog(`流式生成完成: score=${payload.score ?? "N/A"}`);
         }
       }
@@ -355,6 +360,139 @@ async function runStream() {
     setRunning(false);
   }
 }
+
+// ── Refine state (Phase 1-4) ──
+
+const refinePanel = document.getElementById("refinePanel");
+const refinePromptEl = document.getElementById("refinePrompt");
+const refineBtn = document.getElementById("refineBtn");
+const refineStatus = document.getElementById("refineStatus");
+
+let currentJobId = "";
+let currentHtmlUrl = "";
+let currentLayoutHtml = "";
+let currentImageUrl = "";
+let currentWidth = 768;
+let currentHeight = 1152;
+let currentIteration = 0;
+
+function updateRefineButtonState() {
+  const hasHtml = !!(currentHtmlUrl || currentLayoutHtml);
+  const hasPrompt = refinePromptEl.value.trim().length > 0;
+  refineBtn.disabled = !(hasHtml && hasPrompt);
+}
+
+function updateCurrentState(data) {
+  if (data.job_id) currentJobId = data.job_id;
+  if (data.html_url) {
+    currentHtmlUrl = data.html_url;
+  } else if (currentJobId && data.image_url) {
+    // Infer html_url from image_url when not provided.
+    // e.g. /assets/abc_1.png → /assets/abc_1.html
+    const imgUrl = data.image_url || "";
+    const htmlGuess = imgUrl.replace(/\.(png|jpg|jpeg)$/, ".html");
+    if (htmlGuess !== imgUrl) {
+      currentHtmlUrl = htmlGuess;
+    }
+  }
+  if (data.layout_html) currentLayoutHtml = data.layout_html;
+  if (data.image_url) currentImageUrl = data.image_url;
+  if (data.width) currentWidth = data.width;
+  if (data.height) currentHeight = data.height;
+  if (data.iteration !== undefined) currentIteration = data.iteration;
+  updateRefineButtonState();
+}
+
+async function runRefine() {
+  const prompt = refinePromptEl.value.trim();
+  if (!prompt) {
+    appendLog("请先填写微调提示词");
+    return;
+  }
+  if (!currentHtmlUrl && !currentLayoutHtml) {
+    appendLog("暂无可微调的 HTML，请先生成一张海报");
+    return;
+  }
+
+  setRunning(true, "Refining");
+  refineStatus.textContent = "微调中...";
+  refineStatus.classList.add("running");
+  refineStatus.classList.remove("hidden");
+  appendLog(`微调请求: "${prompt}"`);
+
+  try {
+    const payload = {
+      job_id: currentJobId,
+      html_url: currentHtmlUrl || undefined,
+      layout_html: currentHtmlUrl ? undefined : currentLayoutHtml,
+      prompt,
+      width: currentWidth,
+      height: currentHeight,
+      iteration: currentIteration + 1,
+    };
+    Object.keys(payload).forEach((k) => {
+      if (payload[k] === undefined) delete payload[k];
+    });
+
+    const resp = await fetch(`${API_BASE}/api/v1/refine`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`HTTP ${resp.status}: ${text}`);
+    }
+
+    const data = await resp.json();
+    appendLog(`微调完成: iteration=${data.iteration}, warnings=${data.warnings?.length || 0}`);
+    if (data.warnings && data.warnings.length > 0) {
+      appendLog(`警告: ${data.warnings.join("; ")}`);
+    }
+    if (data.critique) {
+      appendLog(`VLM评分: ${data.critique.score}, ${data.critique.revision_focus || "N/A"}`);
+    }
+
+    // Update state and preview.
+    currentHtmlUrl = data.html_url;
+    currentLayoutHtml = data.layout_html;
+    if (data.image_url) currentImageUrl = data.image_url;
+    currentIteration = data.iteration;
+    updateRefineButtonState();
+
+    if (data.image_url) {
+      renderPreviewFromImageUrl(data.image_url);
+    } else if (data.final_image) {
+      renderPreviewFromBase64(data.final_image);
+    }
+
+    refineStatus.textContent = "完成";
+  } catch (err) {
+    appendLog(`微调失败: ${err.message}`);
+    refineStatus.textContent = "失败";
+  } finally {
+    setRunning(false);
+    refineStatus.classList.remove("running");
+    setTimeout(() => refineStatus.classList.add("hidden"), 2000);
+  }
+}
+
+refineBtn.addEventListener("click", runRefine);
+refinePromptEl.addEventListener("input", updateRefineButtonState);
+
+// ── Preset buttons ──
+
+document.querySelectorAll(".preset-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const promptText = btn.dataset.prompt;
+    if (promptText) {
+      promptEl.value = promptText;
+    }
+  });
+});
+
+// ── Wire up entries ──
 
 healthBtn.addEventListener("click", checkHealth);
 generateBtn.addEventListener("click", runGenerate);

@@ -56,11 +56,23 @@
             <textarea
               id="prompt"
               rows="4"
-              placeholder="例如：制作一张科技风 AI 会议海报"
+              placeholder="例如：做一张当代艺术展海报，主题是&ldquo;静默的机器&rdquo;，极简、不要 CTA"
             >
-制作一张科技风 AI 会议海报</textarea
+为一个当代艺术展做一张极简海报，主题是&ldquo;静默的机器&rdquo;，不要按钮</textarea
             >
           </label>
+
+          <div class="preset-bar">
+            <span class="preset-label">快捷预设</span>
+            <div class="preset-buttons">
+              <button type="button" class="preset-btn" data-prompt="为一个当代艺术展做一张极简海报，主题是&ldquo;静默的机器&rdquo;，不要按钮">展览</button>
+              <button type="button" class="preset-btn" data-prompt="做一张纯文字爵士音乐节海报，极简排版，不要 CTA 按钮">纯文字</button>
+              <button type="button" class="preset-btn" data-prompt="招聘海报，需要扫码报名，温暖友好的校园风格">招聘</button>
+              <button type="button" class="preset-btn" data-prompt="产品发布海报，简洁高端，展示产品质感">产品</button>
+              <button type="button" class="preset-btn" data-prompt="音乐节演出海报，高能量、大胆构图、霓虹色彩">活动</button>
+              <button type="button" class="preset-btn" data-prompt="只用抽象形状和色彩表达海边夏日的氛围">实验</button>
+            </div>
+          </div>
 
           <div class="field-row">
             <label class="field">
@@ -97,6 +109,19 @@
               />
             </label>
             <label class="field">
+              <span>最小复审</span>
+              <input
+                id="minIterations"
+                type="number"
+                min="0"
+                max="4"
+                value="1"
+              />
+            </label>
+          </div>
+
+          <div class="field-row">
+            <label class="field">
               <span>目标分数</span>
               <input
                 id="targetScore"
@@ -130,8 +155,21 @@
 
           <div class="preview-box" id="previewBox">
             <p class="preview-placeholder">
-              暂无海报结果，点击“快速生成”或“流式生成”开始。
+              暂无海报结果，点击"快速生成"或"流式生成"开始。
             </p>
+          </div>
+
+          <div class="refine-panel" id="refinePanel">
+            <label class="field">
+              <span>微调提示词</span>
+              <textarea
+                id="refinePrompt"
+                rows="2"
+                placeholder="例如：把标题往下移动一点，主视觉放大，保持极简风格"
+              ></textarea>
+            </label>
+            <button id="refineBtn" type="button" disabled>微调当前海报</button>
+            <span id="refineStatus" class="refine-status hidden"></span>
           </div>
 
           <pre id="logArea" class="log" aria-live="polite"></pre>

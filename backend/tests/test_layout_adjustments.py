@@ -114,6 +114,6 @@ async def test_feedback_drives_html_changes():
     assert "<p>B</p>" in result2  # Different from <p>A</p> in V1.
     # captured_messages[1] = list of messages for 2nd call; [1] = user message
     second_prompt = client.captured_messages[1][1]["content"]
-    assert "Feedback from VLM review" in second_prompt
+    assert "FEEDBACK from VLM review" in second_prompt  # Phase 4 header
     assert "Title font is too small" in second_prompt
     assert "Increase title font-size to 48px" in second_prompt

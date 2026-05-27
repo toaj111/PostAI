@@ -1,29 +1,31 @@
-"""Vision-language critic — Phase 2 (HTML pipeline).
+"""Vision-language critic — Phase 5 (poster-specific rubric).
 
 Critiques a rendered poster by sending the PNG image to a vision model along
-with the HTML layout that produced it.  Uses ``parse_vision`` with
-*enable_thinking* so the model can reason about what it sees before scoring.
+with the PosterBriefV2, ArtDirectionV2, and HTML layout context.  Uses
+``parse_vision`` with *enable_thinking* so the model can reason before scoring.
+
+The critique now includes a dimension-level rubric, structured issues, and a
+``revision_focus`` field that directly drives the router.
 """
 
 from __future__ import annotations
 
 import json
-from itertools import combinations
 
 from app.core.config import get_settings
 from app.core.errors import LLMCallError, SchemaParseError
 from app.core.llm_client import StructuredLLMClient
-from app.schemas.agents import CritiqueResult
+from app.schemas.agents import CritiqueIssue, CritiqueResult
 from app.schemas.state import GraphState
 
 
 class HeuristicVLMCritic:
     """Critique a rendered poster using a vision-language model.
 
-    Sends the rendered PNG along with the HTML layout snippet and asks for
-    structured feedback.  With *enable_thinking* the model first reasons
-    about what it sees (stored in ``state.vision_reasoning``) and then
-    emits a ``CritiqueResult`` with a literal ``vision_description``.
+    Sends the rendered PNG along with poster_brief, art_direction, and HTML
+    layout snippet.  With *enable_thinking* the model first reasons about what
+    it sees (stored in ``state.vision_reasoning``) and then emits a
+    ``CritiqueResult`` with rubric, structured issues, and revision_focus.
 
     Falls back to a deterministic heuristic when the vision model is
     unavailable.
@@ -53,7 +55,7 @@ class HeuristicVLMCritic:
                 state.warnings.append(f"VLMCritic vision fallback: {exc}")
             return self._run_heuristic(state)
 
-    # ── vision model path ──
+    # ── vision model path (Phase 5 V2 prompt) ──
 
     async def _run_vision_model(self, state: GraphState) -> CritiqueResult:
         if state.render_result is None or not state.render_result.image_base64:
@@ -77,94 +79,172 @@ class HeuristicVLMCritic:
         return result
 
     def _build_vision_messages(self, state: GraphState, image_url: str) -> list[dict]:
-        """Construct the multi-modal messages for the vision critique call.
+        """Construct the multi-modal messages — Phase 5 with brief + art direction."""
+        html_snippet = state.layout_html[:3000] if state.layout_html else ""
 
-        Sends the HTML layout (truncated) as context so the VLM can compare
-        the design intent with the actual rendered pixels.
-        """
+        brief_json = state.poster_brief.model_dump(mode="json") if state.poster_brief else None
+        ad_json = state.art_direction.model_dump(mode="json") if state.art_direction else None
+
         system_prompt = (
-            "You are a strict visual art director reviewing a generated poster.\n\n"
-            "Step 1 — Describe what you literally see in the image: colors, "
-            "shapes, text content, layout structure, spacing, visual hierarchy. "
+            "You are a strict poster art director reviewing a rendered poster image.\n"
+            "Return only JSON matching CritiqueResult.\n\n"
+            "Evaluate it as a POSTER, not as a web page.\n\n"
+            "Step 1 — Describe what you literally see in the image: composition, "
+            "text content, imagery, colour, hierarchy, spacing, and style. "
             "Put this in the **vision_description** field.\n\n"
-            "Step 2 — Score the poster (0-100) on readability, hierarchy, overlap, "
-            "margins, style consistency, and topic expression. "
-            "Set **passed**=true if the poster is good enough to ship.\n"
-            "Explain your scoring in the **reasoning** field.\n\n"
-            "Step 3 — List specific **issues** you can literally see.\n\n"
-            "Step 4 — Write concrete, actionable **suggestions** in natural "
-            "language that a layout designer can follow to improve the HTML/CSS.\n\n"
-            "Return ONLY a JSON object with exactly these fields — no schema, no extras:\n"
-            '{"score": 85, "passed": true, "reasoning": "...", "vision_description": "...", "issues": ["..."], "suggestions": ["..."]}'
+            "Step 2 — Judge whether the poster type and communication mode match "
+            "the PosterBriefV2.\n\n"
+            "Step 3 — Score the poster (0-100) using the **rubric** with these "
+            "dimensions (each 0-20, total normalised):\n"
+            "  - poster_identity: does it feel like a finished poster?\n"
+            "  - topic_fit: does it express the user's theme?\n"
+            "  - composition: is there a clear visual idea and hierarchy?\n"
+            "  - typography: is type intentional and suitable?\n"
+            "  - readability: can required information be read?\n"
+            "  - craft: does it avoid broken rendering, overlap, and generic template feel?\n"
+            "Explain your scoring in the **reasoning** field. "
+            "Set **passed**=true if the poster is good enough to ship.\n\n"
+            "The top-level **score** field MUST be a single integer from 0 to 100. "
+            "Put the dimension scores in the separate **rubric** object. "
+            "Never put the rubric object inside the score field.\n\n"
+            "Step 4 — List concrete visible issues as **structured_issues**. Each "
+            "must have: type (composition|typography|content|color|imagery|rendering|style), "
+            "severity (minor|major|blocking), target_id (element id, or null), "
+            "description, and suggestion.\n"
+            "Also populate the legacy **issues** (string list) and **suggestions** "
+            "(string list) with the same content.\n\n"
+            "Step 5 — Set **revision_focus** to one of:\n"
+            '  - "final" — poster is good enough, stop iterating\n'
+            '  - "layout" — needs layout/composition/spacing/topology fixes\n'
+            '  - "style" — needs colour, mood, background, or font changes\n'
+            '  - "content" — missing required text, wrong information, or content mismatch\n'
+            '  - "render" — has browser rendering errors, broken fonts, or CSS bugs\n\n'
+            "IMPORTANT RULES:\n"
+            "- Do NOT demand a CTA, subtitle, hero image, or button unless the "
+            "PosterBriefV2 marks them as required (presence='required').\n"
+            "- Do NOT penalize intentional minimalism, type-only design, or abstract "
+            "composition when it matches the brief.\n"
+            "- Do NOT invent issues that are not visible in the image.\n"
+            "- If the poster is genuinely well-done and matches the brief, give it "
+            "a high score and set revision_focus='final'.\n\n"
+            "Return ONLY a JSON object matching CritiqueResult — no markdown, no extras.\n"
+            "Expected shape example:\n"
+            '{"score": 88, "passed": true, "reasoning": "...", '
+            '"vision_description": "...", "issues": [], "suggestions": [], '
+            '"structured_issues": [], '
+            '"rubric": {"poster_identity": 18, "topic_fit": 18, '
+            '"composition": 17, "typography": 17, "readability": 18, "craft": 18}, '
+            '"revision_focus": "final", "do_not_change": []}'
         )
 
-        # Truncate HTML to avoid blowing up the prompt.
-        html_snippet = state.layout_html[:3000] if state.layout_html else ""
+        user_text = (
+            f"Poster brief (PosterBriefV2):\n{json.dumps(brief_json, ensure_ascii=False) if brief_json else 'none'}\n\n"
+            f"Art direction (ArtDirectionV2):\n{json.dumps(ad_json, ensure_ascii=False) if ad_json else 'none'}\n\n"
+            f"HTML layout (first 3000 chars):\n{html_snippet}\n\n"
+            "Review the rendered poster image and return a complete CritiqueResult."
+        )
 
         return [
             {"role": "system", "content": system_prompt},
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "text",
-                        "text": (
-                            f"Content plan: {state.content_plan.model_dump(mode='json')}\n"
-                            f"HTML layout (first 3000 chars): {html_snippet}\n"
-                            "Critique this rendered poster and return structured feedback."
-                        ),
-                    },
+                    {"type": "text", "text": user_text},
                     {"type": "image_url", "image_url": {"url": image_url}},
                 ],
             },
         ]
 
-    # ── heuristic fallback ──
+    # ── heuristic fallback (Phase 5 — respects cta_policy) ──
 
     def _run_heuristic(self, state: GraphState) -> CritiqueResult:
         """Deterministic critique when the vision model is not available.
 
-        Uses the HTML content and content_plan to perform basic checks.
+        Checks the HTML against content_plan and poster_brief.
+        Does NOT penalize missing CTA unless cta_policy is 'required'.
         """
         if not state.content_plan or not state.content_plan.elements:
             raise ValueError("content_plan with elements is required before critique")
 
         elements = state.content_plan.elements
         html = state.layout_html or ""
-        issues: list[str] = []
-        suggestions: list[str] = []
+        legacy_issues: list[str] = []
+        legacy_suggestions: list[str] = []
+        structured: list[CritiqueIssue] = []
 
-        # Check that all required text elements appear in the HTML.
+        brief = state.poster_brief
+        cta_required = (
+            brief.content_strategy.cta_policy == "required" if brief else False
+        )
+
+        # ── Check text elements ──
         for el in elements:
-            if el.type.value == "text" and el.content and el.content not in html:
-                issues.append(f"Text element '{el.id}' ({el.content}) may be missing from HTML")
-                suggestions.append(
-                    f"Ensure the text '{el.content}' appears in the HTML body for element '{el.id}'."
-                )
+            if el.type.value == "text" and el.content:
+                if el.content not in html:
+                    # Skip CTA check if CTA is not required.
+                    if (el.role == "cta" or el.id == "cta") and not cta_required:
+                        continue
+                    # Only flag required/recommended elements as issues.
+                    if el.presence in ("required", "recommended"):
+                        desc = f"Text element '{el.id}' ({el.content}) may be missing from HTML"
+                        legacy_issues.append(desc)
+                        legacy_suggestions.append(
+                            f"Ensure the text '{el.content}' appears in the HTML body for element '{el.id}'."
+                        )
+                        structured.append(CritiqueIssue(
+                            type="content", severity="major", target_id=el.id,
+                            description=desc,
+                            suggestion=f"Add '{el.content}' to the HTML body.",
+                        ))
 
-        # Check for common anti-patterns.
+        # ── Check HTML structure ──
         if "<body" not in html.lower() and "<html" not in html.lower():
-            issues.append("HTML is missing <body> or <html> tags")
-            suggestions.append("Add proper <!DOCTYPE html> and <body> structure to the HTML.")
+            legacy_issues.append("HTML is missing <body> or <html> tags")
+            legacy_suggestions.append("Add proper <!DOCTYPE html> and <body> structure to the HTML.")
+            structured.append(CritiqueIssue(
+                type="rendering", severity="blocking", target_id=None,
+                description="HTML is missing <body> or <html> tags",
+                suggestion="Add proper <!DOCTYPE html> and <body> structure.",
+            ))
 
         if "<style" not in html and "style=" not in html:
-            issues.append("No CSS styling found in the HTML")
-            suggestions.append("Add inline CSS or a <style> block for visual design.")
+            legacy_issues.append("No CSS styling found in the HTML")
+            legacy_suggestions.append("Add inline CSS or a <style> block for visual design.")
+            structured.append(CritiqueIssue(
+                type="style", severity="major", target_id=None,
+                description="No CSS styling found in the HTML",
+                suggestion="Add inline CSS or a <style> block for visual design.",
+            ))
 
-        score = max(60, 92 - len(issues) * 8)
+        # ── Determine revision_focus ──
+        if not structured:
+            revision_focus = "final"
+        elif any(i.type == "rendering" or i.severity == "blocking" for i in structured):
+            revision_focus = "render"
+        elif any(i.type == "content" for i in structured):
+            revision_focus = "content"
+        elif any(i.type == "style" for i in structured):
+            revision_focus = "style"
+        else:
+            revision_focus = "layout"
+
+        score = max(60, 92 - len(structured) * 8)
         passed = score >= state.target_score
         reasoning = (
             "Layout contains expected elements and styling."
             if passed
             else "Layout is missing key elements or styling."
         )
+
         return CritiqueResult(
             score=score,
             passed=passed,
             reasoning=reasoning,
             vision_description="(heuristic — no vision model available)",
-            issues=issues,
-            suggestions=suggestions,
+            issues=legacy_issues,
+            suggestions=legacy_suggestions,
+            structured_issues=structured,
+            revision_focus=revision_focus,
         )
 
     # ── helpers ──

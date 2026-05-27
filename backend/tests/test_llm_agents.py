@@ -2,9 +2,48 @@ from app.agents.content_extractor import ContentExtractor
 from app.agents.layout_planner import SpatialLayoutPlanner
 from app.agents.style_director import StyleDirector
 from app.core.errors import LLMCallError, SchemaParseError
-from app.schemas.agents import ContentPlan, ElementContent, CritiqueResult, StyleGuide
+from app.schemas.agents import (
+    ArtDirectionV2,
+    ColorSystem,
+    ContentPlan,
+    ContentStrategy,
+    CritiqueResult,
+    ElementContent,
+    ImagerySpec,
+    PosterBriefV2,
+    PosterIntent,
+    PosterLanguage,
+    PosterMessage,
+    StyleGuide,
+    TypographySpec,
+    VisualSubject,
+)
 from app.schemas.layout import CanvasSpec, ElementType
 from app.schemas.state import GraphState, ReferenceImage
+
+
+def _make_brief(headline: str = "发布会", subhead: str = "未来已来",
+                cta: str | None = "报名", goal: str = "launch") -> PosterBriefV2:
+    """Quickly build a PosterBriefV2 for test fixtures."""
+    messages = [
+        PosterMessage(id="title", role="headline", content=headline, importance=10, presence="required", source="user"),
+    ]
+    if subhead:
+        messages.append(
+            PosterMessage(id="subtitle", role="subhead", content=subhead, importance=8, presence="recommended", source="inferred"),
+        )
+    if cta:
+        messages.append(
+            PosterMessage(id="cta", role="cta", content=cta, importance=5, presence="required", source="inferred"),
+        )
+    return PosterBriefV2(
+        poster_intent=PosterIntent(poster_type="campaign", communication_mode="persuade", primary_goal=goal),
+        content_strategy=ContentStrategy(cta_policy="required" if cta else "omit"),
+        messages=messages,
+        visual_subjects=[
+            VisualSubject(id="main_visual", role="illustration", description="robot", presence="recommended", source="inferred"),
+        ],
+    )
 
 
 class FakeLLMClient:
@@ -66,45 +105,33 @@ class FakeMalformedContentClient:
 # ── ContentExtractor ──
 
 async def test_content_extractor_uses_llm_output():
-    llm = FakeLLMClient(
-        [
-            ContentPlan(
-                poster_goal="launch",
-                elements=[
-                    ElementContent(id="title", type=ElementType.text, content="发布会", priority=10),
-                    ElementContent(id="subtitle", type=ElementType.text, content="未来已来", priority=8),
-                    ElementContent(id="main_visual", type=ElementType.image, content="robot", priority=7),
-                    ElementContent(id="cta", type=ElementType.text, content="报名", priority=5),
-                ],
-            )
-        ]
-    )
-    result = await ContentExtractor(llm_client=llm).run(GraphState(user_prompt="AI 发布会"))
+    brief = _make_brief(headline="发布会", subhead="未来已来", cta="报名", goal="launch")
+    llm = FakeLLMClient([brief])
+    state = GraphState(user_prompt="AI 发布会")
+    result = await ContentExtractor(llm_client=llm).run(state)
     assert llm.calls == 1
     assert result.poster_goal == "launch"
+    # Phase 2: poster_brief must be stored on state.
+    assert state.poster_brief is not None
+    assert state.poster_brief.poster_intent.primary_goal == "launch"
+    assert state.poster_brief.content_strategy.cta_policy == "required"
 
 
 async def test_content_extractor_normalizes_layout_like_payload():
-    result = await ContentExtractor(llm_client=FakeMalformedContentClient()).run(GraphState(user_prompt="AI 会议"))
+    state = GraphState(user_prompt="AI 会议")
+    result = await ContentExtractor(llm_client=FakeMalformedContentClient()).run(state)
     ids = {element.id for element in result.elements}
-    assert {"title", "subtitle", "main_visual", "cta"} <= ids
+    assert {"title", "main_visual"} <= ids
+    cta_element = next((e for e in result.elements if e.id == "cta"), None)
+    assert cta_element is not None
     assert result.poster_goal
+    # Phase 2: old-format payload is normalised into PosterBriefV2.
+    assert state.poster_brief is not None
 
 
 async def test_content_extractor_includes_reference_images_in_prompt():
-    llm = FakeLLMClient(
-        [
-            ContentPlan(
-                poster_goal="launch",
-                elements=[
-                    ElementContent(id="title", type=ElementType.text, content="发布会", priority=10),
-                    ElementContent(id="subtitle", type=ElementType.text, content="未来已来", priority=8),
-                    ElementContent(id="main_visual", type=ElementType.image, content="robot", priority=7),
-                    ElementContent(id="cta", type=ElementType.text, content="报名", priority=5),
-                ],
-            )
-        ]
-    )
+    brief = _make_brief(headline="发布会", subhead="未来已来", cta="报名", goal="launch")
+    llm = FakeLLMClient([brief])
     state = GraphState(
         user_prompt="AI 发布会",
         reference_images=[
@@ -115,9 +142,22 @@ async def test_content_extractor_includes_reference_images_in_prompt():
         ],
     )
     await ContentExtractor(llm_client=llm).run(state)
+    system_prompt = llm.captured_messages[0][0]["content"]
+    assert "Reference images" in system_prompt or "Reference images" in llm.captured_messages[0][1]["content"]
     user_prompt = llm.captured_messages[0][1]["content"]
-    assert "Reference images" in user_prompt
     assert "蓝色科技人物" in user_prompt
+
+
+def _make_art_direction() -> ArtDirectionV2:
+    """Quickly build an ArtDirectionV2 for test fixtures."""
+    return ArtDirectionV2(
+        style_name="tech neon",
+        mood_keywords=["tech", "futuristic"],
+        poster_language=PosterLanguage(composition_family="centered_iconic", visual_density="medium", negative_space="balanced", depth_strategy="layered", risk_level="safe"),
+        color_system=ColorSystem(background="#000000", foreground="#FFFFFF", accent="#00E5FF", secondary="#111111", palette_notes="tech look"),
+        typography=TypographySpec(headline_style="grotesk", body_style="sans", scale_contrast="high", letter_case="as_given"),
+        imagery=ImagerySpec(treatment="none", background_strategy="gradient", prompt="clean", negative_prompt="clutter"),
+    )
 
 
 # ── StyleDirector ──
@@ -128,6 +168,8 @@ async def test_style_director_falls_back_when_llm_fails():
     result = await StyleDirector(llm_client=llm).run(state)
     assert result.mood == "futuristic"
     assert state.warnings
+    # Phase 3: art_direction stored even on fallback path.
+    assert state.art_direction is not None
 
 
 async def test_style_director_raises_when_fallback_disabled():
@@ -141,19 +183,7 @@ async def test_style_director_raises_when_fallback_disabled():
 
 
 async def test_style_director_includes_reference_images_in_prompt():
-    llm = FakeLLMClient(
-        [
-            StyleGuide(
-                theme_keywords=["tech"],
-                background_prompt="clean",
-                primary_color="#000000",
-                secondary_color="#111111",
-                accent_color="#00E5FF",
-                text_color="#FFFFFF",
-                mood="futuristic",
-            )
-        ]
-    )
+    llm = FakeLLMClient([_make_art_direction()])
     state = GraphState(
         user_prompt="科技海报",
         reference_images=[
@@ -170,6 +200,9 @@ async def test_style_director_includes_reference_images_in_prompt():
     await StyleDirector(llm_client=llm).run(state)
     system_prompt = llm.captured_messages[0][0]["content"]
     assert "Reference images are provided" in system_prompt
+    # Phase 3: art_direction stored on state.
+    assert state.art_direction is not None
+    assert state.art_direction.color_system.accent == "#00E5FF"
     assert "深色背景与屏幕光效" in system_prompt
 
 
@@ -295,9 +328,6 @@ def test_validate_html_rejects_too_short():
 
 async def test_layout_planner_includes_feedback_in_prompt():
     """When state has feedback_history, the LLM prompt includes VLM context."""
-    # We verify this indirectly: with two LLM calls, feedback changes the
-    # second output.  This is already covered by test_layout_planner_calls_llm_every_iteration,
-    # but we add an explicit check here that the feedback text is built.
     planner = SpatialLayoutPlanner()
     state = _state_for_planner()
     state.feedback_history.append(
@@ -310,7 +340,7 @@ async def test_layout_planner_includes_feedback_in_prompt():
     )
     messages = planner._build_messages(state)
     user_content = messages[1]["content"]
-    assert "Feedback from VLM review" in user_content
+    assert "FEEDBACK from VLM review" in user_content  # Phase 4 header
     assert "Title too close to edge" in user_content
     assert "Move title down" in user_content
     assert "What the vision model saw" in user_content
@@ -343,6 +373,8 @@ def test_layout_planner_includes_reference_images_in_prompt():
     messages = planner._build_messages(state)
     system_prompt = messages[0]["content"]
     user_prompt = messages[1]["content"]
-    assert "If reference images are provided" in system_prompt
-    assert "Reference images available" in user_prompt
+    # Phase 4: reference image guidance is in the system prompt.
+    assert "reference image" in system_prompt.lower()
+    # Phase 4: reference images appear in user prompt.
+    assert "Reference images" in user_prompt
     assert "蓝色科技人物" in user_prompt

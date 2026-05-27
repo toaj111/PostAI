@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.schemas.agents import ContentPlan, CritiqueResult, StyleGuide
+from app.schemas.agents import ArtDirectionV2, ContentPlan, CritiqueResult, PosterBriefV2, StyleGuide
 from app.schemas.layout import CanvasSpec, LayoutTree
 
 
@@ -61,7 +61,15 @@ class GraphState(BaseModel):
     canvas: CanvasSpec = Field(default_factory=CanvasSpec)
     stage: GraphStage = GraphStage.init
     content_plan: ContentPlan | None = None
+    poster_brief: PosterBriefV2 | None = Field(
+        default=None,
+        description="Phase 2 structured poster brief — richer than ContentPlan; set by ContentExtractor",
+    )
     style: StyleGuide | None = None
+    art_direction: ArtDirectionV2 | None = Field(
+        default=None,
+        description="Phase 3 structured art direction — richer than StyleGuide; set by StyleDirector",
+    )
     layout_tree: LayoutTree | None = None
     layout_html: str | None = Field(
         default=None,

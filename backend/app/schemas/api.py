@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
-from app.schemas.agents import ContentPlan, CritiqueResult, StyleGuide
+from app.schemas.agents import ArtDirectionV2, ContentPlan, CritiqueResult, PosterBriefV2, StyleGuide
 from app.schemas.layout import LayoutTree
 from app.schemas.state import ReferenceImage, RenderResult
 
@@ -41,10 +41,42 @@ class GenerateResponse(BaseModel):
     score: int | None = None
     warnings: list[str] = Field(default_factory=list)
     content_plan: ContentPlan | None = None
+    poster_brief: PosterBriefV2 | None = None
+    art_direction: ArtDirectionV2 | None = None
     style: StyleGuide | None = None
     layout_tree: LayoutTree | None = None
     layout_html: str | None = None
     html_url: str | None = None
     render_result: RenderResult | None = None
     critiques: list[CritiqueResult] = Field(default_factory=list)
+
+
+# ── Phase 1: incremental HTML refinement ──
+
+
+class RefineRequest(BaseModel):
+    job_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    prompt: str = Field(min_length=1, max_length=1000)
+    width: int = Field(default=1024, ge=256, le=4096)
+    height: int = Field(default=1536, ge=256, le=4096)
+    html_url: str | None = None
+    layout_html: str | None = None
+    iteration: int | None = Field(default=None, ge=0, le=999)
+
+    @model_validator(mode="after")
+    def require_html_source(self) -> "RefineRequest":
+        if not self.html_url and not self.layout_html:
+            raise ValueError("Either html_url or layout_html must be provided")
+        return self
+
+
+class RefineResponse(BaseModel):
+    job_id: str
+    iteration: int
+    layout_html: str
+    html_url: str
+    image_url: str | None = None
+    final_image: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    critique: CritiqueResult | None = None
 

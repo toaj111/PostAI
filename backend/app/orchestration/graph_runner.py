@@ -18,6 +18,7 @@ from app.core.events import SSEEvent, event
 from app.orchestration.retry import retry_async
 from app.orchestration.router import RouteAction, route_after_critique
 from app.render.asset_store import AssetStore
+from app.render.html_painter import apply_canvas_guard
 from app.schemas.api import GenerateResponse
 from app.schemas.state import GraphStage, GraphState
 
@@ -66,14 +67,16 @@ class GraphRunner:
             state.style = await retry_async(lambda: self.style_director.run(state), attempts=3)
             yield event("agent_complete", {"job_id": state.job_id, "agent": "StyleDirector", "result": state.style.model_dump(mode="json")})
 
-            best_response: GenerateResponse | None = None
-            best_score = -1
-
             while state.iteration_count < state.max_iterations:
                 # ── Layout (HTML) ──
                 state.stage = GraphStage.layout
                 yield event("agent_start", {"job_id": state.job_id, "agent": "SpatialLayoutPlanner", "message": "Designing poster HTML/CSS"})
                 state.layout_html = await retry_async(lambda: self.layout_planner.run(state), attempts=3)
+                state.layout_html = apply_canvas_guard(
+                    state.layout_html,
+                    width=state.canvas.width,
+                    height=state.canvas.height,
+                )
                 # Persist the HTML source alongside the rendered PNG.
                 state.html_url = await self.asset_store.save_html(
                     state.layout_html, job_id=state.job_id, iteration=state.iteration_count
@@ -106,10 +109,6 @@ class GraphRunner:
                     "vision_reasoning": state.vision_reasoning,
                 })
 
-                if critique.score > best_score:
-                    best_score = critique.score
-                    best_response = self.build_response(state)
-
                 # ── Decision ──
                 decision = route_after_critique(state)
                 if decision.action == RouteAction.final:
@@ -124,10 +123,15 @@ class GraphRunner:
                     yield event("agent_start", {"job_id": state.job_id, "agent": "StyleDirector", "message": decision.reason})
                     state.style = await retry_async(lambda: self.style_director.run(state), attempts=3)
                     yield event("agent_complete", {"job_id": state.job_id, "agent": "StyleDirector", "result": state.style.model_dump(mode="json")})
+                elif decision.action == RouteAction.content:
+                    state.stage = GraphStage.content
+                    yield event("agent_start", {"job_id": state.job_id, "agent": "ContentExtractor", "message": decision.reason})
+                    state.content_plan = await retry_async(lambda: self.content_extractor.run(state), attempts=3)
+                    yield event("agent_complete", {"job_id": state.job_id, "agent": "ContentExtractor", "result": state.content_plan.model_dump(mode="json")})
 
             # ── Finalise ──
             state.stage = GraphStage.final
-            response = self._finalize_response(best_response, state)
+            response = self._finalize_response(state)
             yield event("final_output", response.model_dump(mode="json"))
             yield event("job_finished", {"job_id": state.job_id, "stage": state.stage.value})
 
@@ -164,6 +168,8 @@ class GraphRunner:
             score=latest.score if latest else None,
             warnings=state.warnings,
             content_plan=state.content_plan,
+            poster_brief=state.poster_brief,
+            art_direction=state.art_direction,
             style=state.style,
             layout_tree=state.layout_tree,
             layout_html=state.layout_html,
@@ -172,11 +178,11 @@ class GraphRunner:
             critiques=state.feedback_history,
         )
 
-    def _finalize_response(self, best_response: GenerateResponse | None, state: GraphState) -> GenerateResponse:
-        response = best_response or self.build_response(state)
+    def _finalize_response(self, state: GraphState) -> GenerateResponse:
+        response = self.build_response(state)
         latest = state.feedback_history[-1] if state.feedback_history else None
         return response.model_copy(update={
             "warnings": list(state.warnings),
             "critiques": list(state.feedback_history),
-            "score": response.score if response.score is not None else (latest.score if latest else None),
+            "score": latest.score if latest else response.score,
         })

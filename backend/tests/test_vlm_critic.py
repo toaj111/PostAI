@@ -99,6 +99,31 @@ async def test_vlm_critic_stores_empty_reasoning_when_thinking_off():
     assert result.score == 80
 
 
+def test_critique_result_normalizes_rubric_in_score_field():
+    result = CritiqueResult.model_validate(
+        {
+            "score": {
+                "poster_identity": 20,
+                "topic_fit": 20,
+                "composition": 18,
+                "typography": 18,
+                "readability": 20,
+                "craft": 18,
+            },
+            "passed": True,
+            "reasoning": "ok",
+            "vision_description": "poster",
+            "issues": [],
+            "suggestions": [],
+            "revision_focus": "final",
+        }
+    )
+
+    assert result.score == 95
+    assert result.rubric is not None
+    assert result.rubric.composition == 18
+
+
 async def test_vlm_critic_heuristic_requires_content_plan():
     """Heuristic needs content_plan with elements."""
     state = _state_for_critic()

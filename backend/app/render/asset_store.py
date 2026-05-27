@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 from io import BytesIO
 from pathlib import Path
+import re
 from uuid import uuid4
 
 from PIL import Image, UnidentifiedImageError
@@ -21,12 +22,18 @@ class AssetStore:
         self.base_dir = Path(base_dir)
         self.public_path = public_path.rstrip("/")
 
+    def _safe_job_id(self, job_id: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", job_id):
+            raise RenderError("job_id contains unsafe characters")
+        return job_id
+
     async def save_render(self, result: RenderResult, *, job_id: str, iteration: int) -> RenderResult:
         if not result.image_base64:
             return result
 
         self.base_dir.mkdir(parents=True, exist_ok=True)
         extension = "jpg" if result.mime_type == "image/jpeg" else "png"
+        job_id = self._safe_job_id(job_id)
         filename = f"{job_id}_{iteration}.{extension}"
         target = self.base_dir / filename
         try:
@@ -39,6 +46,7 @@ class AssetStore:
     async def save_html(self, html: str, *, job_id: str, iteration: int) -> str:
         """Persist the HTML source and return its public URL."""
         self.base_dir.mkdir(parents=True, exist_ok=True)
+        job_id = self._safe_job_id(job_id)
         filename = f"{job_id}_{iteration}.html"
         target = self.base_dir / filename
         target.write_text(html, encoding="utf-8")
@@ -69,6 +77,69 @@ class AssetStore:
 
         target.write_bytes(image_bytes)
         return f"{self.public_path}/reference_uploads/{target_name}"
+
+
+    async def load_html_by_url(self, html_url: str) -> str:
+        """Read an HTML file that was previously saved under *base_dir*.
+
+        Only accepts paths that resolve within ``self.base_dir`` and end with
+        ``.html``.  Rejects paths with ``..`` traversal or absolute paths.
+        """
+        if not html_url:
+            raise RenderError("html_url is empty")
+
+        if not html_url.startswith(self.public_path + "/"):
+            raise RenderError(f"html_url must start with {self.public_path}/")
+
+        relative = html_url[len(self.public_path):].lstrip("/")
+
+        # Reject dangerous patterns.
+        if ".." in relative or relative.startswith("/") or "\\" in relative:
+            raise RenderError("html_url contains unsafe path components")
+
+        if not relative.lower().endswith(".html"):
+            raise RenderError("html_url must point to an .html file")
+
+        base = self.base_dir.resolve()
+        target = (self.base_dir / relative).resolve()
+        try:
+            target.relative_to(base)
+        except ValueError as exc:
+            raise RenderError("html_url escapes the asset directory") from exc
+
+        if not target.is_file():
+            raise RenderError(f"HTML file not found: {relative}")
+
+        return target.read_text(encoding="utf-8")
+
+    async def save_refined_html(self, html: str, *, job_id: str, iteration: int) -> str:
+        """Persist a refined HTML and return its public URL.
+
+        Filename: ``{job_id}_refine_{iteration}.html``
+        """
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        job_id = self._safe_job_id(job_id)
+        filename = f"{job_id}_refine_{iteration}.html"
+        target = self.base_dir / filename
+        target.write_text(html, encoding="utf-8")
+        return f"{self.public_path}/{filename}"
+
+    async def save_refined_png(self, image_base64: str, *, job_id: str, iteration: int) -> str:
+        """Persist a refined PNG and return its public URL.
+
+        Filename: ``{job_id}_refine_{iteration}.png``
+        """
+        if not image_base64:
+            raise RenderError("refined result image data is empty")
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        job_id = self._safe_job_id(job_id)
+        filename = f"{job_id}_refine_{iteration}.png"
+        target = self.base_dir / filename
+        try:
+            target.write_bytes(base64.b64decode(image_base64))
+        except ValueError as exc:
+            raise RenderError("refined result contains invalid base64 image data") from exc
+        return f"{self.public_path}/{filename}"
 
 
 def _extension_from_mime(mime_type: str) -> str:
