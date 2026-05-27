@@ -2,8 +2,6 @@
 
 ## 环境要求
 
-
-
 ## 快速开始
 
 ### 方式一：uv（推荐）
@@ -78,6 +76,8 @@ ALLOW_MODEL_FALLBACK=true
 
 ### 调用示例
 
+#### 命令行
+
 ```powershell
 # Windows PowerShell（中文必须 UTF-8 编码）
 $body = '{"prompt":"给我一个卡通画的爱丽丝梦游仙境的海报","width":768,"height":1152,"max_iterations":2,"min_iterations":1}'
@@ -93,35 +93,44 @@ curl -X POST http://127.0.0.1:8000/api/v1/generate \
   -d '{"prompt":"请介绍你自己","width":768,"height":1152,"max_iterations":2,"min_iterations":1}'
 ```
 
----
+#### 网页演示
+
+```bash
+cd frontend
+python -m http.server 5500
+```
+
+浏览器访问`http://127.0.0.1:5500`
 
 ## API
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| `POST` | `/api/v1/generate` | 同步生成海报，返回 JSON（含 `final_image` base64） |
-| `POST` | `/api/v1/generate/stream` | SSE 流式生成，实时推送各阶段进度 |
-| `GET` | `/health` | 健康检查 |
+| 方法   | 路径                      | 说明                                               |
+| ------ | ------------------------- | -------------------------------------------------- |
+| `POST` | `/api/v1/generate`        | 同步生成海报，返回 JSON（含 `final_image` base64） |
+| `POST` | `/api/v1/generate/stream` | SSE 流式生成，实时推送各阶段进度                   |
+| `GET`  | `/health`                 | 健康检查                                           |
 
 ### 请求体
 
 ```json
 {
   "prompt": "制作一张科技风 AI 会议海报",
-  "width": 768, "height": 1152,
-  "max_iterations": 3, "min_iterations": 1,
+  "width": 768,
+  "height": 1152,
+  "max_iterations": 3,
+  "min_iterations": 1,
   "target_score": 85
 }
 ```
 
-| 字段 | 默认值 | 说明 |
-|---|---|---|
-| `prompt` | (必填) | 海报主题，中文/英文均可 |
-| `width` | 1024 | 画布宽度 (256–4096) |
-| `height` | 1536 | 画布高度 (256–4096) |
-| `max_iterations` | 3 | 最大迭代次数 (1–5) |
-| `min_iterations` | 0 | 最少 VLM 评审次数，0=达标即停，1=至少一轮反馈后再停 |
-| `target_score` | 85 | 目标评分，VLM 达到此分且 min_iterations 满足时停止 |
+| 字段             | 默认值 | 说明                                                |
+| ---------------- | ------ | --------------------------------------------------- |
+| `prompt`         | (必填) | 海报主题，中文/英文均可                             |
+| `width`          | 1024   | 画布宽度 (256–4096)                                 |
+| `height`         | 1536   | 画布高度 (256–4096)                                 |
+| `max_iterations` | 3      | 最大迭代次数 (1–5)                                  |
+| `min_iterations` | 0      | 最少 VLM 评审次数，0=达标即停，1=至少一轮反馈后再停 |
+| `target_score`   | 85     | 目标评分，VLM 达到此分且 min_iterations 满足时停止  |
 
 ### 响应体
 
@@ -234,5 +243,3 @@ PostAI/
 ```
 
 ---
-
-

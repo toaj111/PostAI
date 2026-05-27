@@ -4,7 +4,7 @@ from app.agents.style_director import StyleDirector
 from app.core.errors import LLMCallError, SchemaParseError
 from app.schemas.agents import ContentPlan, ElementContent, CritiqueResult, StyleGuide
 from app.schemas.layout import CanvasSpec, ElementType
-from app.schemas.state import GraphState
+from app.schemas.state import GraphState, ReferenceImage
 
 
 class FakeLLMClient:
@@ -16,9 +16,11 @@ class FakeLLMClient:
     def __init__(self, outputs):
         self.outputs = list(outputs)
         self.calls = 0
+        self.captured_messages = []
 
     async def parse(self, *, messages, response_model):
         self.calls += 1
+        self.captured_messages.append(messages)
         output = self.outputs.pop(0)
         if isinstance(output, Exception):
             raise output
@@ -27,6 +29,7 @@ class FakeLLMClient:
     async def _chat_completion(self, *, messages, response_model, force_raw=False):
         """Used by Phase 2 LayoutPlanner for raw HTML output."""
         self.calls += 1
+        self.captured_messages.append(messages)
         output = self.outputs.pop(0)
         if isinstance(output, Exception):
             raise output
@@ -88,6 +91,35 @@ async def test_content_extractor_normalizes_layout_like_payload():
     assert result.poster_goal
 
 
+async def test_content_extractor_includes_reference_images_in_prompt():
+    llm = FakeLLMClient(
+        [
+            ContentPlan(
+                poster_goal="launch",
+                elements=[
+                    ElementContent(id="title", type=ElementType.text, content="发布会", priority=10),
+                    ElementContent(id="subtitle", type=ElementType.text, content="未来已来", priority=8),
+                    ElementContent(id="main_visual", type=ElementType.image, content="robot", priority=7),
+                    ElementContent(id="cta", type=ElementType.text, content="报名", priority=5),
+                ],
+            )
+        ]
+    )
+    state = GraphState(
+        user_prompt="AI 发布会",
+        reference_images=[
+            ReferenceImage(
+                url="https://images.unsplash.com/photo-1518770660439-4636190af475",
+                description="蓝色科技人物",
+            )
+        ],
+    )
+    await ContentExtractor(llm_client=llm).run(state)
+    user_prompt = llm.captured_messages[0][1]["content"]
+    assert "Reference images" in user_prompt
+    assert "蓝色科技人物" in user_prompt
+
+
 # ── StyleDirector ──
 
 async def test_style_director_falls_back_when_llm_fails():
@@ -106,6 +138,39 @@ async def test_style_director_raises_when_fallback_disabled():
     import pytest
     with pytest.raises(LLMCallError):
         await agent.run(state)
+
+
+async def test_style_director_includes_reference_images_in_prompt():
+    llm = FakeLLMClient(
+        [
+            StyleGuide(
+                theme_keywords=["tech"],
+                background_prompt="clean",
+                primary_color="#000000",
+                secondary_color="#111111",
+                accent_color="#00E5FF",
+                text_color="#FFFFFF",
+                mood="futuristic",
+            )
+        ]
+    )
+    state = GraphState(
+        user_prompt="科技海报",
+        reference_images=[
+            ReferenceImage(
+                url="https://images.unsplash.com/photo-1461749280684-dccba630e2f6",
+                description="深色背景与屏幕光效",
+            )
+        ],
+    )
+    state.content_plan = ContentPlan(
+        poster_goal="test",
+        elements=[ElementContent(id="title", type=ElementType.text, content="科技大会", priority=10)],
+    )
+    await StyleDirector(llm_client=llm).run(state)
+    system_prompt = llm.captured_messages[0][0]["content"]
+    assert "Reference images are provided" in system_prompt
+    assert "深色背景与屏幕光效" in system_prompt
 
 
 # ── SpatialLayoutPlanner (Phase 2 — outputs HTML string) ──
@@ -264,3 +329,20 @@ async def test_layout_planner_includes_vision_reasoning_in_feedback():
     user_content = messages[1]["content"]
     assert "Vision model reasoning:" in user_content
     assert "dark poster with tight margins" in user_content
+
+
+def test_layout_planner_includes_reference_images_in_prompt():
+    planner = SpatialLayoutPlanner()
+    state = _state_for_planner()
+    state.reference_images = [
+        ReferenceImage(
+            url="https://images.unsplash.com/photo-1518770660439-4636190af475",
+            description="蓝色科技人物",
+        )
+    ]
+    messages = planner._build_messages(state)
+    system_prompt = messages[0]["content"]
+    user_prompt = messages[1]["content"]
+    assert "If reference images are provided" in system_prompt
+    assert "Reference images available" in user_prompt
+    assert "蓝色科技人物" in user_prompt

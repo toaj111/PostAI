@@ -2,12 +2,34 @@ from __future__ import annotations
 
 from enum import Enum
 from typing import Literal
+from urllib.parse import urlparse
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.agents import ContentPlan, CritiqueResult, StyleGuide
 from app.schemas.layout import CanvasSpec, LayoutTree
+
+
+class ReferenceImage(BaseModel):
+    url: str = Field(
+        min_length=10,
+        max_length=2048,
+        description="Reference image URL (http/https)",
+    )
+    description: str = Field(
+        min_length=1,
+        max_length=500,
+        description="How this image should guide poster design",
+    )
+
+    @field_validator("url")
+    @classmethod
+    def validate_http_url(cls, value: str) -> str:
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("reference image URL must be a valid http/https URL")
+        return value
 
 
 class RenderResult(BaseModel):
@@ -54,6 +76,10 @@ class GraphState(BaseModel):
     max_iterations: int = 3
     min_iterations: int = Field(default=0, ge=0, le=4, description="Minimum VLM reviews before early score-based exit")
     target_score: int = 85
+    reference_images: list[ReferenceImage] = Field(
+        default_factory=list,
+        description="Optional user-provided reference images with descriptions",
+    )
     feedback_history: list[CritiqueResult] = Field(default_factory=list)
     vision_reasoning: str = Field(
         default="",

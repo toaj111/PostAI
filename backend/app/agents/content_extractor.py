@@ -32,13 +32,15 @@ class ContentExtractor:
             return self._run_rules(state)
 
     async def _run_llm(self, state: GraphState) -> ContentPlan:
+        reference_context = self._build_reference_context(state)
         messages = [
             {
                 "role": "system",
                 "content": (
                     "You are a senior poster copy planner. Return only JSON matching ContentPlan. "
                     "Create 4 to 8 stable poster elements. Required ids: title, subtitle, main_visual, cta. "
-                    "Use type values: text, image, shape, group. Keep Chinese text concise."
+                    "Use type values: text, image, shape, group. Keep Chinese text concise. "
+                    "When reference images are provided, use their subject/style as context for planning."
                 ),
             },
             {
@@ -46,6 +48,7 @@ class ContentExtractor:
                 "content": (
                     f"User prompt: {state.user_prompt}\n"
                     f"Canvas: {state.canvas.width}x{state.canvas.height}px\n"
+                    f"{reference_context}"
                     "Plan semantic poster content."
                 ),
             },
@@ -71,6 +74,9 @@ class ContentExtractor:
         prompt = state.user_prompt.strip()
         normalized = re.sub(r"\s+", " ", prompt)
         title = self._make_title(normalized)
+        reference_hint = ""
+        if state.reference_images:
+            reference_hint = "；参考图线索：" + "；".join(img.description for img in state.reference_images[:2])
 
         elements = [
             ElementContent(id="title", type=ElementType.text, content=title, priority=10),
@@ -83,7 +89,7 @@ class ContentExtractor:
             ElementContent(
                 id="main_visual",
                 type=ElementType.image,
-                content=f"{normalized} 的核心视觉，干净背景，适合中文海报排版",
+                content=f"{normalized} 的核心视觉，干净背景，适合中文海报排版{reference_hint}",
                 priority=7,
                 alt="poster key visual",
             ),
@@ -104,6 +110,15 @@ class ContentExtractor:
 
     def _configured_for_llm(self) -> bool:
         return bool(self.llm_client.api_key and self.llm_client.base_url and not self.llm_client.model.startswith("mock-"))
+
+    def _build_reference_context(self, state: GraphState) -> str:
+        if not state.reference_images:
+            return "Reference images: none.\n"
+        lines = ["Reference images:"]
+        for index, image in enumerate(state.reference_images, start=1):
+            lines.append(f"{index}. {image.url} | description: {image.description}")
+        lines.append("Use these references to infer visual subject and composition priorities.")
+        return "\n".join(lines) + "\n"
 
     def _validate_required_elements(self, plan: ContentPlan) -> None:
         ids = {element.id for element in plan.elements}

@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.agents import ContentPlan, CritiqueResult, StyleGuide
 from app.schemas.layout import LayoutTree
-from app.schemas.state import RenderResult
+from app.schemas.state import ReferenceImage, RenderResult
 
 
 class GenerateRequest(BaseModel):
@@ -14,6 +14,24 @@ class GenerateRequest(BaseModel):
     max_iterations: int = Field(default=3, ge=1, le=5)
     min_iterations: int = Field(default=0, ge=0, le=4, description="Minimum VLM review cycles before early exit; 0=stop anytime, 1=at least one re-layout")
     target_score: int = Field(default=85, ge=1, le=100)
+    reference_images: list[ReferenceImage] = Field(
+        default_factory=list,
+        max_length=5,
+        description="Optional references used as layout/style context and embeddable image URLs",
+    )
+
+
+class ReferenceImageUploadRequest(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    mime_type: str = Field(min_length=5, max_length=100)
+    data_url: str = Field(min_length=20)
+    description: str = Field(default="", max_length=500)
+
+
+class ReferenceImageUploadResponse(BaseModel):
+    url: str
+    filename: str
+    mime_type: str
 
 
 class GenerateResponse(BaseModel):

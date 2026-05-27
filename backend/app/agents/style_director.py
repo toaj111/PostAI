@@ -30,6 +30,17 @@ class StyleDirector:
 
     async def _run_llm(self, state: GraphState) -> StyleGuide:
         content_plan = state.content_plan.model_dump(mode="json") if state.content_plan else None
+        reference_context = ""
+        if state.reference_images:
+            refs = [
+                f"{index}. {image.url} | {image.description}"
+                for index, image in enumerate(state.reference_images, start=1)
+            ]
+            reference_context = (
+                "\nReference images are provided. Extract palette, mood, and compositional cues from them "
+                "while keeping user prompt as the top priority:\n"
+                + "\n".join(refs)
+            )
         messages = [
             {
                 "role": "system",
@@ -37,6 +48,7 @@ class StyleDirector:
                     "You are an art director for poster design. Return only JSON matching StyleGuide. "
                     "All colors must be valid 6-digit HEX values. "
                     "The background prompt must reserve clean readable areas for text."
+                    f"{reference_context}"
                 ),
             },
             {"role": "user", "content": f"User prompt: {state.user_prompt}\nContent plan: {content_plan}"},

@@ -13,14 +13,174 @@ const widthEl = document.getElementById("width");
 const heightEl = document.getElementById("height");
 const maxIterationsEl = document.getElementById("maxIterations");
 const targetScoreEl = document.getElementById("targetScore");
+const addReferenceBtn = document.getElementById("addReferenceBtn");
+const referenceListEl = document.getElementById("referenceList");
+
+const MAX_REFERENCE_IMAGES = 5;
+const REFERENCE_UPLOAD_ENDPOINT = `${API_BASE}/api/v1/reference-images/upload`;
+
+function createReferenceRow({ mode = "url", url = "", description = "" } = {}) {
+  const row = document.createElement("div");
+  row.className = "reference-row";
+  row.innerHTML = `
+    <div class="reference-headline">
+      <label class="field reference-mode-field">
+        <span>来源</span>
+        <select class="ref-mode">
+          <option value="url">在线链接</option>
+          <option value="upload">本地上传</option>
+        </select>
+      </label>
+      <button type="button" class="remove-ref-btn">移除</button>
+    </div>
+    <div class="reference-grid">
+      <div class="reference-panel reference-url-panel">
+        <label class="field reference-field">
+          <span>图片链接</span>
+          <input class="ref-url" type="url" placeholder="https://example.com/image.jpg" value="${url}" />
+        </label>
+      </div>
+      <div class="reference-panel reference-upload-panel hidden">
+        <label class="field reference-field">
+          <span>本地图片</span>
+          <input class="ref-file" type="file" accept="image/*" />
+        </label>
+        <p class="file-name">未选择文件</p>
+      </div>
+      <label class="field reference-field reference-desc-field">
+        <span>图片描述</span>
+        <input class="ref-desc" type="text" maxlength="500" placeholder="例如：蓝色霓虹人物半身像" value="${description}" />
+      </label>
+    </div>
+  `;
+
+  const modeSelect = row.querySelector(".ref-mode");
+  const urlPanel = row.querySelector(".reference-url-panel");
+  const uploadPanel = row.querySelector(".reference-upload-panel");
+  const fileInput = row.querySelector(".ref-file");
+  const fileName = row.querySelector(".file-name");
+  let selectedFile = null;
+
+  function syncMode() {
+    const isUpload = modeSelect.value === "upload";
+    urlPanel.classList.toggle("hidden", isUpload);
+    uploadPanel.classList.toggle("hidden", !isUpload);
+  }
+
+  modeSelect.value = mode;
+  syncMode();
+
+  modeSelect.addEventListener("change", syncMode);
+  fileInput.addEventListener("change", () => {
+    selectedFile = fileInput.files?.[0] || null;
+    fileName.textContent = selectedFile ? selectedFile.name : "未选择文件";
+  });
+
+  row.getReferenceData = () => ({
+    mode: modeSelect.value,
+    url: row.querySelector(".ref-url")?.value.trim() || "",
+    description: row.querySelector(".ref-desc")?.value.trim() || "",
+    file: selectedFile,
+  });
+
+  const removeBtn = row.querySelector(".remove-ref-btn");
+  removeBtn.addEventListener("click", () => {
+    row.remove();
+    updateReferenceButtonState();
+  });
+
+  referenceListEl.appendChild(row);
+  updateReferenceButtonState();
+}
+
+function updateReferenceButtonState() {
+  const count = referenceListEl.querySelectorAll(".reference-row").length;
+  addReferenceBtn.disabled = count >= MAX_REFERENCE_IMAGES;
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error(`无法读取文件 ${file.name}`));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadReferenceFile(file, description) {
+  const dataUrl = await readFileAsDataUrl(file);
+  const resp = await fetch(REFERENCE_UPLOAD_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      filename: file.name,
+      mime_type: file.type || "image/png",
+      data_url: dataUrl,
+      description,
+    }),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`上传失败 HTTP ${resp.status}: ${text}`);
+  }
+
+  const payload = await resp.json();
+  return payload.url;
+}
+
+async function collectReferenceImages() {
+  const rows = referenceListEl.querySelectorAll(".reference-row");
+  const references = [];
+
+  for (const row of rows) {
+    const referenceData = row.getReferenceData?.();
+    if (!referenceData) {
+      continue;
+    }
+
+    const description = referenceData.description || "未提供描述";
+    if (referenceData.mode === "upload") {
+      if (!referenceData.file) {
+        appendLog("跳过未选择文件的本地参考图");
+        continue;
+      }
+      const uploadedUrl = await uploadReferenceFile(
+        referenceData.file,
+        description,
+      );
+      references.push({ url: uploadedUrl, description });
+      continue;
+    }
+
+    const url = referenceData.url;
+    if (!url) {
+      continue;
+    }
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+        appendLog(`忽略非法参考图 URL（仅支持 http/https）: ${url}`);
+        continue;
+      }
+      references.push({ url, description });
+    } catch {
+      appendLog(`忽略非法参考图 URL: ${url}`);
+    }
+  }
+
+  return references;
+}
 
 function getPayload() {
+  const referenceImages = collectReferenceImages();
   return {
     prompt: promptEl.value.trim() || "制作一张科技风 AI 会议海报",
     width: Number(widthEl.value) || 768,
     height: Number(heightEl.value) || 1152,
     max_iterations: Number(maxIterationsEl.value) || 2,
     target_score: Number(targetScoreEl.value) || 85,
+    reference_images: referenceImages,
   };
 }
 
@@ -82,10 +242,13 @@ async function runGenerate() {
   appendLog("调用快速生成 /api/v1/generate");
 
   try {
+    const payload = getPayload();
+    payload.reference_images = await collectReferenceImages();
+    appendLog(`携带参考图数量: ${payload.reference_images.length}`);
     const resp = await fetch(`${API_BASE}/api/v1/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(getPayload()),
+      body: JSON.stringify(payload),
     });
 
     if (!resp.ok) {
@@ -117,10 +280,13 @@ async function runStream() {
   appendLog("调用流式生成 /api/v1/generate/stream");
 
   try {
+    const payload = getPayload();
+    payload.reference_images = await collectReferenceImages();
+    appendLog(`携带参考图数量: ${payload.reference_images.length}`);
     const resp = await fetch(`${API_BASE}/api/v1/generate/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(getPayload()),
+      body: JSON.stringify(payload),
     });
 
     if (!resp.ok || !resp.body) {
@@ -193,5 +359,9 @@ async function runStream() {
 healthBtn.addEventListener("click", checkHealth);
 generateBtn.addEventListener("click", runGenerate);
 streamBtn.addEventListener("click", runStream);
+addReferenceBtn.addEventListener("click", () => {
+  createReferenceRow();
+});
 
+createReferenceRow();
 checkHealth();

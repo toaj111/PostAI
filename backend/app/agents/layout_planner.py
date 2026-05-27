@@ -91,7 +91,7 @@ class SpatialLayoutPlanner:
             "Do NOT use JavaScript.\n\n"
             "Requirements:\n"
             f"- The <body> IS the poster canvas: exactly {w}x{h}px.  Set "
-            "body {{ width:{w}px; height:{h}px; overflow:hidden; }} in CSS.\n"
+            f"body {{ width:{w}px; height:{h}px; overflow:hidden; }} in CSS.\n"
             "- Use CSS gradients, shadows (box-shadow, text-shadow), "
             "border-radius, and opacity for modern visual effects.\n"
             "- Load fonts via @import from Google Fonts CDN, e.g. "
@@ -104,6 +104,10 @@ class SpatialLayoutPlanner:
             f"text={style.text_color}, mood={style.mood}.\n"
             "- The design must be visually impressive — a real, polished poster, "
             "not a wireframe or documentation example.\n\n"
+            "- If reference images are provided, you MAY insert them via <img> or "
+            "CSS background-image and must size/place them carefully: keep each image "
+            "roughly within 15%-35% of canvas area, keep safe margins, avoid covering "
+            "title/CTA, and use object-fit for proper cropping.\n\n"
             "IMPORTANT: Return ONLY the HTML source, starting with <!DOCTYPE html>. "
             "Do NOT wrap it in markdown code fences."
         )
@@ -147,6 +151,15 @@ class SpatialLayoutPlanner:
             f"Content plan: {state.content_plan.model_dump(mode='json')}",
             f"Style guide: {style.model_dump(mode='json')}",
         ]
+        if state.reference_images:
+            refs = [
+                f"{index}. {image.url} | {image.description}"
+                for index, image in enumerate(state.reference_images, start=1)
+            ]
+            user_parts.append(
+                "Reference images available for insertion and style context:\n"
+                + "\n".join(refs)
+            )
         if feedback_text:
             user_parts.append(feedback_text)
         user_parts.append("Output the complete HTML document now.")
