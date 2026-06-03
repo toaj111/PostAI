@@ -99,6 +99,15 @@ class ContentExtractor:
                     "target_audience, and tone.\n"
                     "Set content_strategy with headline_policy, information_density, "
                     "cta_policy, image_policy, and inference_policy.\n\n"
+                    "Make the brief visually generative, not merely textual. "
+                    "When the user has not requested strict type-only minimalism, "
+                    "include at least one visual_subject that can become a concrete "
+                    "poster device: cropped object, symbolic motif, texture field, "
+                    "pattern system, frame, ornament, abstract geometry, or reference "
+                    "image treatment. Describe its scale, placement, and purpose.\n\n"
+                    "Separate message hierarchy from decoration: identify which text "
+                    "is headline, supporting copy, metadata, or CTA, and mark weak "
+                    "or invented details as optional/placeholder rather than required.\n\n"
                     "Reference images, when provided, are visual context. They can "
                     "influence subject, mood, palette, and composition, but user intent "
                     "remains the priority. Put reference image insights into "
@@ -268,6 +277,8 @@ class ContentExtractor:
         if state.reference_images:
             reference_hint = "；参考图线索：" + "；".join(img.description for img in state.reference_images[:2])
 
+        wants_type_only = self._wants_type_only(normalized)
+
         elements = [
             ElementContent(id="title", type=ElementType.text, content=title, priority=10, role="headline", presence="required"),
             ElementContent(
@@ -276,7 +287,7 @@ class ContentExtractor:
                 content=self._make_subtitle(normalized),
                 priority=8,
                 role="subhead",
-                presence="recommended",
+                presence="optional" if wants_type_only else "recommended",
             ),
             ElementContent(
                 id="main_visual",
@@ -285,7 +296,7 @@ class ContentExtractor:
                 priority=7,
                 alt="poster key visual",
                 role="visual_label",
-                presence="recommended",
+                presence="omit" if wants_type_only and not state.reference_images else "recommended",
             ),
             ElementContent(
                 id="info",
@@ -318,9 +329,48 @@ class ContentExtractor:
             "注册", "订阅", "加入", "联系", "咨询", "抢购",
             "下单", "参与", "申请", "登记", "关注",
         ]
-        return any(kw in prompt for kw in cta_keywords)
+        extra_cta_keywords = (
+            "\u62a5\u540d", "\u8d2d\u4e70", "\u9884\u7ea6", "\u626b\u7801",
+            "\u7acb\u5373", "\u6ce8\u518c", "\u8ba2\u9605", "\u52a0\u5165",
+            "\u8054\u7cfb", "\u54a8\u8be2", "\u62a2\u8d2d", "\u4e0b\u5355",
+            "\u53c2\u4e0e", "\u7533\u8bf7", "\u767b\u8bb0", "\u5173\u6ce8",
+            "register", "sign up", "book", "reserve", "buy", "purchase", "join",
+        )
+        lower = prompt.lower()
+        return any(kw in prompt or kw in lower for kw in (*cta_keywords, *extra_cta_keywords))
+
+    def _wants_type_only(self, prompt: str) -> bool:
+        tokens = [
+            "\u7eaf\u6587\u5b57",
+            "\u7eaf\u5b57",
+            "\u53ea\u7528\u6587\u5b57",
+            "\u6781\u7b80",
+            "\u4e0d\u8981\u56fe",
+            "\u4e0d\u8981\u56fe\u7247",
+            "pure text",
+            "type-only",
+            "typographic",
+            "only text",
+            "no image",
+            "no visual",
+            "minimal",
+        ]
+        lower = prompt.lower()
+        return any(token in prompt or token in lower for token in tokens)
 
     def _make_cta(self, prompt: str) -> str:
+        if any(kw in prompt for kw in ["\u62a5\u540d", "\u6ce8\u518c", "\u7533\u8bf7", "\u767b\u8bb0"]):
+            return "\u7acb\u5373\u62a5\u540d"
+        if any(kw in prompt for kw in ["\u8d2d\u4e70", "\u62a2\u8d2d", "\u4e0b\u5355"]):
+            return "\u7acb\u5373\u8d2d\u4e70"
+        if "\u9884\u7ea6" in prompt:
+            return "\u7acb\u5373\u9884\u7ea6"
+        if "\u626b\u7801" in prompt:
+            return "\u626b\u7801\u53c2\u4e0e"
+        if any(kw in prompt for kw in ["\u8ba2\u9605", "\u5173\u6ce8"]):
+            return "\u7acb\u5373\u5173\u6ce8"
+        if any(kw in prompt for kw in ["\u8054\u7cfb", "\u54a8\u8be2"]):
+            return "\u8054\u7cfb\u6211\u4eec"
         if any(kw in prompt for kw in ["报名", "注册", "申请", "登记"]):
             return "立即报名"
         if any(kw in prompt for kw in ["购买", "抢购", "下单"]):

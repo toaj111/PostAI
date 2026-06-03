@@ -11,6 +11,7 @@ The critique now includes a dimension-level rubric, structured issues, and a
 from __future__ import annotations
 
 import json
+import re
 
 from app.core.config import get_settings
 from app.core.errors import LLMCallError, SchemaParseError
@@ -104,6 +105,12 @@ class HeuristicVLMCritic:
             "  - craft: does it avoid broken rendering, overlap, and generic template feel?\n"
             "Explain your scoring in the **reasoning** field. "
             "Set **passed**=true if the poster is good enough to ship.\n\n"
+            "Be strict about visual richness. Unless PosterBriefV2 asks for "
+            "extreme minimalism, penalize posters that look like sparse templates: "
+            "plain gradient background, centered text only, one small generic icon, "
+            "empty placeholder visual, weak hierarchy, or no texture/layering. "
+            "A finished poster should have a clear compositional idea and enough "
+            "visual craft to feel intentional.\n\n"
             "The top-level **score** field MUST be a single integer from 0 to 100. "
             "Put the dimension scores in the separate **rubric** object. "
             "Never put the rubric object inside the score field.\n\n"
@@ -216,6 +223,33 @@ class HeuristicVLMCritic:
                 suggestion="Add inline CSS or a <style> block for visual design.",
             ))
 
+        # Real generation states carry PosterBriefV2/ArtDirectionV2. In that
+        # path, also reject sparse placeholder posters that pass basic HTML checks.
+        if (brief is not None or state.art_direction is not None) and not self._allows_extreme_minimalism(state):
+            layer_count = self._visual_layer_count(html)
+            has_placeholder_icon = self._looks_like_placeholder_icon(html)
+            if layer_count < 4 or has_placeholder_icon:
+                desc = (
+                    "Poster appears visually underdeveloped: it has too few distinct "
+                    "layers or relies on a generic placeholder visual."
+                )
+                legacy_issues.append(desc)
+                legacy_suggestions.append(
+                    "Add a stronger poster system: cropped type or symbol, texture/grid, "
+                    "directional shapes, richer foreground/background layering, and a clearer focal idea."
+                )
+                structured.append(CritiqueIssue(
+                    type="style",
+                    severity="major",
+                    target_id=None,
+                    description=desc,
+                    suggestion=(
+                        "Increase visual richness with at least four purposeful layers "
+                        "and replace generic placeholder icons with a scaled, cropped, "
+                        "theme-specific visual device."
+                    ),
+                ))
+
         # ── Determine revision_focus ──
         if not structured:
             revision_focus = "final"
@@ -255,3 +289,62 @@ class HeuristicVLMCritic:
             and self.vision_client.base_url
             and not self.vision_client.model.startswith("mock-")
         )
+
+    def _allows_extreme_minimalism(self, state: GraphState) -> bool:
+        """Return True when a sparse poster is likely intentional."""
+        brief = state.poster_brief
+        ad = state.art_direction
+        tone = [item.lower() for item in (brief.poster_intent.tone if brief else [])]
+        poster_type = (brief.poster_intent.poster_type if brief else "").lower()
+        prompt = state.user_prompt.lower()
+
+        if any(token in prompt for token in ("极简", "minimal", "纯文字", "type-only", "typographic")):
+            return True
+        if poster_type in {"typographic", "artistic"} and any(token in tone for token in ("minimal", "sparse")):
+            return True
+        if ad is not None:
+            pl = ad.poster_language
+            if (
+                pl.visual_density == "sparse"
+                and pl.negative_space == "generous"
+                and pl.composition_family in {"minimal", "typographic"}
+            ):
+                return True
+        return False
+
+    def _visual_layer_count(self, html: str) -> int:
+        """Rough CSS/HTML signal for whether the poster has visual craft."""
+        lower = html.lower()
+        cues = (
+            "radial-gradient",
+            "repeating-linear-gradient",
+            "background-image",
+            "mix-blend-mode",
+            "clip-path",
+            "box-shadow",
+            "filter:",
+            "transform:",
+            "<svg",
+            "<img",
+            "::before",
+            "::after",
+            "border:",
+            "grid-template",
+            "texture",
+            "grain",
+            "pattern",
+            "frame",
+            "rule",
+            "metadata",
+            "data-row",
+        )
+        return sum(1 for cue in cues if cue in lower)
+
+    def _looks_like_placeholder_icon(self, html: str) -> bool:
+        """Detect the old fallback style: a single faint circle as key visual."""
+        lower = html.lower()
+        circle_count = lower.count("<circle")
+        path_count = lower.count("<path")
+        has_visual = 'data-role="visual"' in lower or "class=\"visual\"" in lower
+        small_svg = bool(re.search(r"\.visual\s+svg\s*\{[^}]*width:\s*3\d%", lower))
+        return has_visual and circle_count <= 2 and path_count == 0 and small_svg

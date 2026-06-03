@@ -40,6 +40,8 @@ class Settings:
     llm_base_url: str | None = None
     llm_model: str = "mock-text"
     llm_response_format: str = "json_schema"
+    llm_temperature: float = 0.35
+    llm_raw_temperature: float = 0.78
     vision_api_key: str | None = None
     vision_base_url: str | None = None
     vision_model: str = "mock-vision"
@@ -61,6 +63,8 @@ def get_settings() -> Settings:
         llm_base_url=os.getenv("LLM_BASE_URL"),
         llm_model=os.getenv("LLM_MODEL", "mock-text"),
         llm_response_format=os.getenv("LLM_RESPONSE_FORMAT", "json_schema"),
+        llm_temperature=float(os.getenv("LLM_TEMPERATURE", "0.35")),
+        llm_raw_temperature=float(os.getenv("LLM_RAW_TEMPERATURE", "0.78")),
         vision_api_key=os.getenv("VISION_API_KEY"),
         vision_base_url=os.getenv("VISION_BASE_URL"),
         vision_model=os.getenv("VISION_MODEL", "mock-vision"),

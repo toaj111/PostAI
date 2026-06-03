@@ -8,6 +8,7 @@ import httpx
 from pydantic import BaseModel
 from pydantic import ValidationError
 
+from app.core.config import get_settings
 from app.core.errors import LLMCallError, SchemaParseError
 from app.core.logging import get_logger
 from app.orchestration.retry import retry_async
@@ -74,12 +75,17 @@ class StructuredLLMClient:
         model: str,
         timeout: float = 60,
         response_format: str = "json_schema",
+        temperature: float | None = None,
+        raw_temperature: float | None = None,
     ) -> None:
+        settings = get_settings()
         self.api_key = api_key
         self.base_url = base_url
         self.model = model
         self.timeout = timeout
         self.response_format = response_format
+        self.temperature = settings.llm_temperature if temperature is None else temperature
+        self.raw_temperature = settings.llm_raw_temperature if raw_temperature is None else raw_temperature
 
     async def parse(self, *, messages: list[dict[str, Any]], response_model: type[ModelT]) -> ModelT:
         if not self.api_key or not self.base_url or self.model.startswith("mock-"):
@@ -123,7 +129,7 @@ class StructuredLLMClient:
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
-            "temperature": 0.2,
+            "temperature": self.raw_temperature if force_raw else self.temperature,
         }
         if not force_raw and self.response_format == "json_schema":
             payload["response_format"] = {
@@ -139,10 +145,11 @@ class StructuredLLMClient:
 
         fmt_display = "raw" if force_raw else self.response_format
         logger.info(
-            "--> LLM CALL  | %s | model=%s | format=%s | messages=\n%s",
+            "--> LLM CALL  | %s | model=%s | format=%s | temp=%.2f | messages=\n%s",
             url,
             self.model,
             fmt_display,
+            payload["temperature"],
             _summarize_messages(messages),
         )
 
