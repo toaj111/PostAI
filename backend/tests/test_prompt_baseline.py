@@ -31,6 +31,8 @@ from app.schemas.agents import (
     PosterMessage,
     StyleGuide,
     TypographySpec,
+    VisualLayerSpec,
+    VisualSystemPlan,
 )
 from app.schemas.layout import CanvasSpec, ElementType
 from app.schemas.state import GraphState, RenderResult
@@ -499,6 +501,32 @@ class TestVLMCriticBaseline:
         state.layout_html = "<html><body><style>.t{color:red}</style><h1>Hello World</h1></body></html>"
         result = HeuristicVLMCritic()._run_heuristic(state)
         assert len(result.issues) == 0
+
+    def test_heuristic_flags_missing_visual_system_layers(self):
+        """VisualSystemPlan required ids must be implemented in HTML."""
+        state = GraphState(user_prompt="poster")
+        state.content_plan = ContentPlan(
+            poster_goal="test",
+            elements=[ElementContent(id="title", type=ElementType.text, content="Hello World", priority=10)],
+        )
+        state.layout_html = (
+            "<html><body><style>.t{color:red}</style>"
+            '<div id="base-field"></div><h1>Hello World</h1></body></html>'
+        )
+        state.visual_system = VisualSystemPlan(
+            composition_archetype="diagonal_energy",
+            density="dense",
+            layer_count_target=6,
+            required_html_ids=["base-field", "texture-field", "headline-system"],
+            layers=[
+                VisualLayerSpec(id="base-field", role="background", description="base", presence="required"),
+                VisualLayerSpec(id="texture-field", role="texture", description="texture", presence="required"),
+                VisualLayerSpec(id="headline-system", role="typography", description="headline", presence="required"),
+            ],
+        )
+        result = HeuristicVLMCritic()._run_heuristic(state)
+        assert result.revision_focus in {"layout", "style"}
+        assert any("VisualSystemPlan" in issue for issue in result.issues)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

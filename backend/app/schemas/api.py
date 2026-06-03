@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.schemas.agents import ArtDirectionV2, ContentPlan, CritiqueResult, PosterBriefV2, StyleGuide
+from app.schemas.agents import (
+    ArtDirectionV2,
+    ContentExpansionPlan,
+    ContentPlan,
+    CritiqueResult,
+    PosterBriefV2,
+    StyleGuide,
+    VisualSystemPlan,
+)
 from app.schemas.layout import LayoutTree
 from app.schemas.state import ReferenceImage, RenderResult
 
@@ -42,7 +50,9 @@ class GenerateResponse(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     content_plan: ContentPlan | None = None
     poster_brief: PosterBriefV2 | None = None
+    content_expansion: ContentExpansionPlan | None = None
     art_direction: ArtDirectionV2 | None = None
+    visual_system: VisualSystemPlan | None = None
     style: StyleGuide | None = None
     layout_tree: LayoutTree | None = None
     layout_html: str | None = None
@@ -79,4 +89,3 @@ class RefineResponse(BaseModel):
     final_image: str | None = None
     warnings: list[str] = Field(default_factory=list)
     critique: CritiqueResult | None = None
-

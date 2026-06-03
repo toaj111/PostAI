@@ -7,7 +7,15 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.schemas.agents import ArtDirectionV2, ContentPlan, CritiqueResult, PosterBriefV2, StyleGuide
+from app.schemas.agents import (
+    ArtDirectionV2,
+    ContentExpansionPlan,
+    ContentPlan,
+    CritiqueResult,
+    PosterBriefV2,
+    StyleGuide,
+    VisualSystemPlan,
+)
 from app.schemas.layout import CanvasSpec, LayoutTree
 
 
@@ -47,7 +55,9 @@ class RenderResult(BaseModel):
 class GraphStage(str, Enum):
     init = "init"
     content = "content"
+    content_expansion = "content_expansion"
     style = "style"
+    visual_system = "visual_system"
     layout = "layout"
     render = "render"
     critique = "critique"
@@ -65,10 +75,18 @@ class GraphState(BaseModel):
         default=None,
         description="Phase 2 structured poster brief — richer than ContentPlan; set by ContentExtractor",
     )
+    content_expansion: ContentExpansionPlan | None = Field(
+        default=None,
+        description="Genre-aware self-questioning expansion plan; set by ContentExpander",
+    )
     style: StyleGuide | None = None
     art_direction: ArtDirectionV2 | None = Field(
         default=None,
         description="Phase 3 structured art direction — richer than StyleGuide; set by StyleDirector",
+    )
+    visual_system: VisualSystemPlan | None = Field(
+        default=None,
+        description="Phase 7 executable visual layer blueprint; set by VisualSystemPlanner",
     )
     layout_tree: LayoutTree | None = None
     layout_html: str | None = Field(
@@ -95,4 +113,3 @@ class GraphState(BaseModel):
     )
     warnings: list[str] = Field(default_factory=list)
     error: str | None = None
-

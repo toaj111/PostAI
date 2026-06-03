@@ -1,10 +1,13 @@
+from app.agents.content_expander import ContentExpander
 from app.agents.content_extractor import ContentExtractor
 from app.agents.layout_planner import SpatialLayoutPlanner
 from app.agents.style_director import StyleDirector
+from app.agents.visual_system_planner import VisualSystemPlanner
 from app.core.errors import LLMCallError, SchemaParseError
 from app.schemas.agents import (
     ArtDirectionV2,
     ColorSystem,
+    ContentExpansionPlan,
     ContentPlan,
     ContentStrategy,
     CritiqueResult,
@@ -16,7 +19,10 @@ from app.schemas.agents import (
     PosterMessage,
     StyleGuide,
     TypographySpec,
+    VisualLayerSpec,
     VisualSubject,
+    VisualSystemPlan,
+    poster_brief_to_content_plan,
 )
 from app.schemas.layout import CanvasSpec, ElementType
 from app.schemas.state import GraphState, ReferenceImage
@@ -148,6 +154,113 @@ async def test_content_extractor_includes_reference_images_in_prompt():
     assert "蓝色科技人物" in user_prompt
 
 
+# ── ContentExpander ──
+
+async def test_content_expander_adds_music_festival_information_slots():
+    state = GraphState(
+        user_prompt="生成一张音乐节的海报",
+        canvas=CanvasSpec(width=512, height=768),
+    )
+    state.poster_brief = PosterBriefV2(
+        poster_intent=PosterIntent(
+            poster_type="event",
+            communication_mode="celebrate",
+            primary_goal="music festival poster",
+            tone=["energetic"],
+        ),
+        content_strategy=ContentStrategy(cta_policy="omit", information_density="medium"),
+        messages=[
+            PosterMessage(
+                id="headline",
+                role="headline",
+                content="音乐节",
+                importance=10,
+                presence="required",
+                source="user",
+            )
+        ],
+        visual_subjects=[],
+    )
+    state.content_plan = poster_brief_to_content_plan(state.poster_brief)
+
+    plan = await ContentExpander().run(state)
+
+    assert plan.poster_type == "music_event"
+    assert state.content_expansion is plan
+    assert state.poster_brief is not None
+    contents = {message.content for message in state.poster_brief.messages}
+    assert {"DATE TBD", "VENUE TBD", "LINEUP TBA", "TICKETS INFO"} <= contents
+    assert state.poster_brief.content_strategy.information_density == "dense"
+    assert state.poster_brief.content_strategy.cta_policy == "optional"
+    assert any(subject.id == "stage-light-system" for subject in state.poster_brief.visual_subjects)
+    assert state.content_plan is not None
+    assert any(element.content == "LINEUP TBA" for element in state.content_plan.elements)
+
+
+async def test_content_expander_keeps_minimal_type_only_sparse():
+    state = GraphState(user_prompt="做一张纯文字音乐节海报，极简排版，不要额外信息")
+    state.poster_brief = PosterBriefV2(
+        poster_intent=PosterIntent(
+            poster_type="typographic",
+            communication_mode="evoke",
+            primary_goal="minimal music poster",
+            tone=["minimal"],
+        ),
+        content_strategy=ContentStrategy(
+            cta_policy="omit",
+            image_policy="omit",
+            information_density="sparse",
+        ),
+        messages=[
+            PosterMessage(
+                id="headline",
+                role="headline",
+                content="JAZZ NIGHT",
+                importance=10,
+                presence="required",
+                source="user",
+            )
+        ],
+    )
+    state.content_plan = poster_brief_to_content_plan(state.poster_brief)
+
+    plan = await ContentExpander().run(state)
+
+    assert plan.density_recommendation == "sparse"
+    assert not plan.inferred_messages
+    assert state.poster_brief.content_strategy.information_density == "sparse"
+    assert {message.content for message in state.poster_brief.messages} == {"JAZZ NIGHT"}
+
+
+async def test_content_expander_uses_llm_output():
+    expansion = ContentExpansionPlan(
+        poster_type="event",
+        density_recommendation="dense",
+        self_questions=["What missing event slots are needed?"],
+        inferred_messages=[
+            PosterMessage(
+                id="date_tbd",
+                role="date",
+                content="DATE TBD",
+                importance=8,
+                presence="recommended",
+                source="placeholder",
+            )
+        ],
+    )
+    llm = FakeLLMClient([expansion])
+    state = GraphState(user_prompt="活动海报")
+    state.poster_brief = _make_brief(cta=None)
+    state.content_plan = poster_brief_to_content_plan(state.poster_brief)
+
+    result = await ContentExpander(llm_client=llm).run(state)
+
+    assert llm.calls == 1
+    assert result is expansion
+    assert state.content_expansion is expansion
+    assert any(message.content == "DATE TBD" for message in state.poster_brief.messages)
+
+
 def _make_art_direction() -> ArtDirectionV2:
     """Quickly build an ArtDirectionV2 for test fixtures."""
     return ArtDirectionV2(
@@ -157,6 +270,23 @@ def _make_art_direction() -> ArtDirectionV2:
         color_system=ColorSystem(background="#000000", foreground="#FFFFFF", accent="#00E5FF", secondary="#111111", palette_notes="tech look"),
         typography=TypographySpec(headline_style="grotesk", body_style="sans", scale_contrast="high", letter_case="as_given"),
         imagery=ImagerySpec(treatment="none", background_strategy="gradient", prompt="clean", negative_prompt="clutter"),
+    )
+
+
+def _make_visual_system() -> VisualSystemPlan:
+    return VisualSystemPlan(
+        composition_archetype="diagonal_energy",
+        density="dense",
+        focal_strategy="headline and symbol pull across a diagonal axis",
+        layer_count_target=7,
+        required_html_ids=["base-field", "texture-field", "headline-system", "key-visual-system"],
+        layers=[
+            VisualLayerSpec(id="base-field", role="background", description="deep field", priority=10, presence="required"),
+            VisualLayerSpec(id="texture-field", role="texture", description="fine grid texture", priority=8, presence="required"),
+            VisualLayerSpec(id="headline-system", role="typography", description="large cropped headline", priority=10, presence="required"),
+            VisualLayerSpec(id="key-visual-system", role="symbol", description="large abstract AI node symbol", priority=8, presence="required"),
+        ],
+        typography_treatment="bold grotesk, high contrast",
     )
 
 
@@ -204,6 +334,41 @@ async def test_style_director_includes_reference_images_in_prompt():
     assert state.art_direction is not None
     assert state.art_direction.color_system.accent == "#00E5FF"
     assert "深色背景与屏幕光效" in system_prompt
+
+
+# ── VisualSystemPlanner ──
+
+async def test_visual_system_planner_uses_llm_output():
+    plan = _make_visual_system()
+    llm = FakeLLMClient([plan])
+    state = _state_for_planner()
+    state.poster_brief = _make_brief()
+    state.art_direction = _make_art_direction()
+
+    result = await VisualSystemPlanner(llm_client=llm).run(state)
+
+    assert llm.calls == 1
+    assert result.composition_archetype == "diagonal_energy"
+    assert "texture-field" in result.required_html_ids
+    assert state.visual_system is result
+    user_prompt = llm.captured_messages[0][1]["content"]
+    assert "PosterBriefV2" in user_prompt
+    assert "ArtDirectionV2" in user_prompt
+
+
+async def test_visual_system_planner_falls_back_when_llm_fails():
+    llm = FakeLLMClient([LLMCallError("network down")])
+    state = _state_for_planner()
+    state.poster_brief = _make_brief()
+    state.art_direction = _make_art_direction()
+
+    result = await VisualSystemPlanner(llm_client=llm).run(state)
+
+    assert state.warnings
+    assert state.visual_system is result
+    assert result.layer_count_target >= 5
+    assert any(layer.id == "texture-field" for layer in result.layers)
+    assert "headline-system" in result.required_html_ids
 
 
 # ── SpatialLayoutPlanner (Phase 2 — outputs HTML string) ──
@@ -285,6 +450,72 @@ async def test_layout_planner_raises_when_fallback_disabled():
     import pytest
     with pytest.raises(LLMCallError):
         await planner.run(_state_for_planner())
+
+
+def test_layout_planner_fallback_keeps_dense_recruitment_details():
+    state = _state_for_planner()
+    state.poster_brief = PosterBriefV2(
+        poster_intent=PosterIntent(
+            poster_type="recruitment",
+            communication_mode="recruit",
+            primary_goal="招聘人工智能算法工程师",
+        ),
+        content_strategy=ContentStrategy(
+            information_density="dense",
+            cta_policy="required",
+            image_policy="optional",
+        ),
+        messages=[
+            PosterMessage(id="headline", role="headline", content="字节跳动AI算法工程师招聘", importance=10, presence="required", source="user"),
+            PosterMessage(id="subhead", role="subhead", content="加入我们，用AI改变世界", importance=7, presence="recommended", source="inferred"),
+            PosterMessage(id="salary", role="body", content="薪资：面议（竞争力薪资）", importance=8, presence="required", source="placeholder"),
+            PosterMessage(id="benefits", role="body", content="福利：六险一金、免费三餐、股票期权等", importance=8, presence="required", source="placeholder"),
+            PosterMessage(id="requirements", role="body", content="要求：扎实算法基础，熟悉深度学习框架", importance=6, presence="recommended", source="inferred"),
+            PosterMessage(id="cta_qrcode", role="cta", content="扫码报名", importance=10, presence="required", source="user"),
+        ],
+    )
+    html = SpatialLayoutPlanner()._run_fallback(state)
+    assert "薪资：面议" in html
+    assert "福利：六险一金" in html
+    assert "要求：扎实算法基础" in html
+    assert 'id="qr-code"' in html
+    assert "clear action, strong hierarchy" not in html
+
+
+def test_layout_planner_fallback_keeps_music_festival_expanded_details():
+    state = _state_for_planner()
+    state.user_prompt = "音乐节演出海报，高能量、大胆构图、霓虹色彩"
+    state.poster_brief = PosterBriefV2(
+        poster_intent=PosterIntent(
+            poster_type="event",
+            communication_mode="celebrate",
+            primary_goal="music festival poster",
+        ),
+        content_strategy=ContentStrategy(
+            information_density="dense",
+            cta_policy="optional",
+            image_policy="optional",
+        ),
+        messages=[
+            PosterMessage(id="headline", role="headline", content="NEON BEATS", importance=10, presence="required", source="user"),
+            PosterMessage(id="date_tbd", role="date", content="DATE TBD", importance=8, presence="recommended", source="placeholder"),
+            PosterMessage(id="venue_tbd", role="venue", content="VENUE TBD", importance=8, presence="recommended", source="placeholder"),
+            PosterMessage(id="lineup_tba", role="body", content="LINEUP TBA", importance=8, presence="recommended", source="placeholder"),
+            PosterMessage(id="stage_program", role="meta", content="MAIN STAGE / BASS STAGE / DANCE STAGE", importance=6, presence="recommended", source="inferred"),
+            PosterMessage(id="ticket_info", role="cta", content="TICKETS INFO", importance=6, presence="optional", source="placeholder"),
+        ],
+        visual_subjects=[
+            VisualSubject(id="stage-light-system", role="symbol", description="stage light beams", presence="recommended", source="inferred"),
+        ],
+    )
+    html = SpatialLayoutPlanner()._run_fallback(state)
+    assert "DATE TBD" in html
+    assert "VENUE TBD" in html
+    assert "LINEUP TBA" in html
+    assert "MAIN STAGE / BASS STAGE / DANCE STAGE" in html
+    assert "TICKETS INFO" in html
+    assert 'id="qr-code"' not in html
+    assert "POSTER DETAILS" in html
 
 
 async def test_layout_planner_strips_markdown_fences():
@@ -378,3 +609,41 @@ def test_layout_planner_includes_reference_images_in_prompt():
     # Phase 4: reference images appear in user prompt.
     assert "Reference images" in user_prompt
     assert "蓝色科技人物" in user_prompt
+
+
+def test_layout_planner_includes_visual_system_in_prompt():
+    planner = SpatialLayoutPlanner()
+    state = _state_for_planner()
+    state.visual_system = _make_visual_system()
+    messages = planner._build_messages(state)
+    system_prompt = messages[0]["content"]
+    user_prompt = messages[1]["content"]
+    assert "VISUAL SYSTEM PLAN" in system_prompt
+    assert "VisualSystemPlan" in user_prompt
+    assert "key-visual-system" in user_prompt
+
+
+def test_layout_planner_includes_content_expansion_in_prompt():
+    planner = SpatialLayoutPlanner()
+    state = _state_for_planner()
+    state.content_expansion = ContentExpansionPlan(
+        poster_type="music_event",
+        density_recommendation="dense",
+        self_questions=["What should a music festival poster include?"],
+        inferred_messages=[
+            PosterMessage(
+                id="lineup_tba",
+                role="body",
+                content="LINEUP TBA",
+                importance=8,
+                presence="recommended",
+                source="placeholder",
+            )
+        ],
+    )
+    messages = planner._build_messages(state)
+    system_prompt = messages[0]["content"]
+    user_prompt = messages[1]["content"]
+    assert "ContentExpansionPlan placeholders" in system_prompt
+    assert "ContentExpansionPlan" in user_prompt
+    assert "LINEUP TBA" in user_prompt

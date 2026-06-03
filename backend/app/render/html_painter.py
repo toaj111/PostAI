@@ -107,13 +107,13 @@ _FALLBACK_TYPE_ONLY = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<div class="bg"></div>
-<div class="grain"></div>
+<div id="base-field" class="bg"></div>
+<div id="texture-field" class="grain"></div>
 <div class="ghost-type" aria-hidden="true">{title}</div>
-<div class="rule a"></div>
+<div id="rule-frame" class="rule a"></div>
 <div class="rule b"></div>
-<div class="index">POSTER / 01</div>
-<div class="content">
+<div id="metadata-strip" class="index">POSTER / 01</div>
+<div class="content" data-layer-id="headline-system">
   <div class="kicker">POSTAI GENERATED</div>
   <div id="headline" data-role="headline" class="title">{title}</div>
 </div>
@@ -161,9 +161,9 @@ _FALLBACK_IMAGE_LED = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<div class="bg"></div>
-<div class="texture"></div>
-<div id="key-visual" data-role="visual" class="visual">
+<div id="base-field" class="bg"></div>
+<div id="texture-field" class="texture"></div>
+<div id="key-visual" data-role="visual" class="visual key-visual-system kinetic-shape">
   <svg viewBox="0 0 600 560" aria-hidden="true">
     <defs>
       <linearGradient id="g" x1="0" x2="1" y1="0" y2="1">
@@ -179,10 +179,10 @@ _FALLBACK_IMAGE_LED = """<!DOCTYPE html>
     <circle cx="294" cy="282" r="42" fill="{accent}" opacity=".9"/>
   </svg>
 </div>
-<div class="text-zone">
+<div class="text-zone" data-layer-id="headline-system">
   <div id="headline" data-role="headline" class="title">{title}</div>
   <div id="subtitle" data-role="subhead" class="subtitle">{subtitle}</div>
-  <div class="side-meta">VISUAL SYSTEM</div>
+  <div id="metadata-strip" class="side-meta">VISUAL SYSTEM</div>
 </div>
 </body>
 </html>"""
@@ -224,16 +224,16 @@ _FALLBACK_EVENT_INFO = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<div class="bg"></div>
-<div class="left-bar"></div>
-<div class="diagonal"></div>
+<div id="base-field" class="bg texture-field"></div>
+<div id="rule-frame" class="left-bar"></div>
+<div class="diagonal kinetic-shape"></div>
 <div class="stamp">INFO</div>
-<div class="content">
+<div class="content" data-layer-id="headline-system">
   <div class="eyebrow">PUBLIC POSTER</div>
   <div id="headline" data-role="headline" class="title">{title}</div>
   <div id="subtitle" data-role="subhead" class="info">{subtitle}</div>
-  <div class="data-row" aria-hidden="true"><span>01 / details</span><span>02 / schedule</span><span>03 / entry</span></div>
-  <div id="cta" data-role="cta" class="cta">{cta}</div>
+  <div id="metadata-strip" class="data-row" aria-hidden="true"><span>01 / details</span><span>02 / schedule</span><span>03 / entry</span></div>
+  <div id="cta" data-role="cta" class="cta action-system">{cta}</div>
 </div>
 </body>
 </html>"""
@@ -283,16 +283,16 @@ _FALLBACK_CTA_CAMPAIGN = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<div class="bg"></div>
-<div class="mesh"></div>
+<div id="base-field" class="bg"></div>
+<div id="texture-field" class="mesh"></div>
 <div class="content">
   <div class="topline"><span>CAMPAIGN</span><span>POSTAI</span></div>
-  <div class="stage">
+  <div class="stage" data-layer-id="headline-system">
     <div class="copy">
       <div id="headline" data-role="headline" class="title">{title}</div>
       <div id="subtitle" data-role="subhead" class="subtitle">{subtitle}</div>
     </div>
-    <div id="key-visual" data-role="visual" class="visual">
+    <div id="key-visual" data-role="visual" class="visual key-visual-system kinetic-shape">
       <svg viewBox="0 0 300 300" aria-hidden="true">
         <path d="M48 188 C62 80 150 28 226 72 C282 104 284 206 218 248 C144 295 38 260 48 188Z" fill="{text_color}" opacity=".78"/>
         <path d="M82 104 L250 86 L218 238 L58 222 Z" fill="none" stroke="{primary}" stroke-width="10" opacity=".55"/>
@@ -302,10 +302,96 @@ _FALLBACK_CTA_CAMPAIGN = """<!DOCTYPE html>
     </div>
   </div>
   <div class="bottom">
-    <div id="cta" data-role="cta" class="cta">{cta}</div>
-    <div class="micro">clear action, strong hierarchy, poster-first layout</div>
+    <div id="cta" data-role="cta" class="cta action-system">{cta}</div>
+    <div id="metadata-strip" class="micro">clear action, strong hierarchy, poster-first layout</div>
   </div>
 </div>
+</body>
+</html>"""
+
+_FALLBACK_RECRUITMENT_DENSE = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  *, *::before, *::after {{ margin:0; padding:0; box-sizing:border-box; }}
+  body {{ width:{width}px; height:{height}px; overflow:hidden; position:relative;
+          font-family:"Microsoft YaHei","PingFang SC","Noto Sans CJK SC",Arial,sans-serif;
+          background:{primary}; color:{text_color}; }}
+  .bg {{ position:absolute; inset:0; background:
+    radial-gradient(circle at 16% 10%, {accent}30 0 16%, transparent 16.4%),
+    radial-gradient(circle at 88% 20%, rgba(255,255,255,.28) 0 18%, transparent 18.5%),
+    linear-gradient(150deg, {primary} 0%, {primary} 42%, {secondary} 100%);
+  }}
+  .texture {{ position:absolute; inset:0; opacity:.2; background-image:
+    linear-gradient(90deg, rgba(255,255,255,.28) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(255,255,255,.2) 1px, transparent 1px);
+    background-size:{grid_size}px {grid_size}px; }}
+  .sun {{ position:absolute; right:-10%; top:-6%; width:48%; aspect-ratio:1; border-radius:50%;
+    background:{accent}; opacity:.28; }}
+  .campus {{ position:absolute; right:6%; top:15%; width:35%; height:25%; opacity:.78; }}
+  .campus::before {{ content:""; position:absolute; left:5%; right:5%; bottom:0; height:58%;
+    background:{text_color}; opacity:.12; clip-path:polygon(0 100%, 0 32%, 18% 32%, 18% 0, 84% 0, 84% 40%, 100% 40%, 100% 100%); }}
+  .campus::after {{ content:""; position:absolute; left:0; right:0; bottom:0; height:28%;
+    border-top:4px solid {accent}; opacity:.85; }}
+  .sheet {{ position:relative; z-index:2; height:100%; padding:7% 7% 6%;
+    display:grid; grid-template-rows:auto auto 1fr auto; gap:4%; }}
+  .topline {{ display:flex; justify-content:space-between; color:{accent};
+    font-size:{meta_size}px; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }}
+  .hero {{ display:grid; grid-template-columns:1fr 32%; gap:5%; align-items:start; }}
+  .title {{ font-size:{title_size}px; line-height:.96; font-weight:1000; max-width:95%; }}
+  .subtitle {{ margin-top:4%; font-size:{subtitle_size}px; line-height:1.35; opacity:.86;
+    border-left:5px solid {accent}; padding-left:4%; max-width:88%; }}
+  .qr {{ justify-self:end; width:100%; max-width:210px; background:rgba(255,255,255,.72);
+    padding:18px; box-shadow:10px 10px 0 rgba(0,0,0,.16); }}
+  .qr-grid {{ width:100%; aspect-ratio:1; background:
+    linear-gradient(90deg, #222 10px, transparent 10px) 0 0 / 26px 26px,
+    linear-gradient(#222 10px, transparent 10px) 0 0 / 26px 26px,
+    radial-gradient(circle at 20% 20%, #222 0 18%, transparent 18.5%),
+    radial-gradient(circle at 80% 20%, #222 0 18%, transparent 18.5%),
+    radial-gradient(circle at 20% 80%, #222 0 18%, transparent 18.5%),
+    #fff; border:8px solid #fff; }}
+  .qr-text {{ margin-top:10px; color:#222; text-align:center; font-size:{note_size}px; font-weight:900; }}
+  .info-panel {{ justify-self:end; width:100%; max-width:210px; min-height:210px;
+    border:4px solid {accent}; padding:18px; display:flex; flex-direction:column;
+    justify-content:space-between; color:{text_color}; background:rgba(255,255,255,.18);
+    box-shadow:10px 10px 0 rgba(0,0,0,.12); }}
+  .info-panel b {{ color:{accent}; font-size:{meta_size}px; letter-spacing:.12em; }}
+  .info-panel span {{ font-size:{body_size}px; line-height:1.25; font-weight:1000; }}
+  .details {{ align-self:stretch; display:grid; grid-template-columns:1fr 1fr; gap:14px;
+    position:relative; z-index:2; }}
+  .detail {{ background:rgba(255,255,255,.66); border-left:6px solid {accent};
+    padding:18px 18px 16px; color:{text_color}; min-height:108px; box-shadow:0 12px 30px rgba(0,0,0,.08); }}
+  .detail b {{ display:block; color:{accent}; font-size:{note_size}px; margin-bottom:8px; letter-spacing:.04em; }}
+  .detail span {{ display:block; font-size:{body_size}px; line-height:1.42; font-weight:700; }}
+  .bottom {{ display:flex; align-items:end; justify-content:space-between; gap:5%; }}
+  .cta {{ min-width:38%; background:{accent}; color:{primary}; font-size:{cta_size}px;
+    font-weight:1000; padding:16px 28px; text-align:center; box-shadow:9px 9px 0 {text_color}; }}
+  .note {{ max-width:45%; text-align:right; font-size:{note_size}px; line-height:1.45; opacity:.72; }}
+</style>
+</head>
+<body>
+<div id="base-field" class="bg"></div>
+<div id="texture-field" class="texture"></div>
+<div class="sun kinetic-shape"></div>
+<div id="key-visual" class="campus key-visual-system" data-role="visual"></div>
+<main class="sheet">
+  <div id="metadata-strip" class="topline"><span>{brand_label}</span><span>{category_label}</span></div>
+  <section class="hero" data-layer-id="headline-system">
+    <div>
+      <h1 id="headline" data-role="headline" class="title">{title}</h1>
+      <div id="subtitle" data-role="subhead" class="subtitle">{subtitle}</div>
+    </div>
+    {side_block}
+  </section>
+  <section class="details">
+    {detail_cards}
+  </section>
+  <section class="bottom">
+    {cta_block}
+    <div class="note">{footer_note}</div>
+  </section>
+</main>
 </body>
 </html>"""
 
@@ -324,6 +410,9 @@ def _build_fallback_html(
     has_cta: bool = True,
     has_visual: bool = True,
     has_subtitle: bool = True,
+    details: list[tuple[str, str]] | None = None,
+    qr_required: bool = False,
+    brand_label: str = "",
 ) -> str:
     """Produce a fallback poster, selecting a template that fits the content plan.
 
@@ -336,6 +425,8 @@ def _build_fallback_html(
     title = escape(title, quote=True)
     subtitle = escape(subtitle, quote=True)
     cta = escape(cta, quote=True)
+    brand_label = escape(brand_label or "POSTER DETAILS", quote=True)
+    details = details or []
 
     title_size = max(30, int(height * 0.064))
     ghost_size = max(96, int(height * 0.16))
@@ -345,6 +436,58 @@ def _build_fallback_html(
     note_size = max(10, int(height * 0.014))
     stamp_size = max(28, int(height * 0.07))
     grid_size = max(28, int(min(width, height) * 0.075))
+    body_size = max(15, int(height * 0.018))
+
+    if details or qr_required:
+        if not details:
+            details = [
+                ("核心信息", subtitle or "清晰展示核心信息"),
+                ("行动方式", cta),
+            ]
+        detail_cards = "\n    ".join(
+            '<article class="detail"><b>{label}</b><span>{value}</span></article>'.format(
+                label=escape(label, quote=True),
+                value=escape(value, quote=True),
+            )
+            for label, value in details[:4]
+        )
+        side_block = (
+            '<div id="qr-code" data-role="qr" class="qr">'
+            '<div class="qr-grid" aria-hidden="true"></div>'
+            f'<div class="qr-text">{escape("扫码报名", quote=True)}</div>'
+            '</div>'
+            if qr_required
+            else (
+                '<div id="detail-system" data-role="metadata" class="info-panel">'
+                f'<b>{escape("DETAILS", quote=True)}</b>'
+                f'<span>{escape(details[0][1] if details else subtitle, quote=True)}</span>'
+                f'<b>{escape("EDITABLE", quote=True)}</b>'
+                '</div>'
+            )
+        )
+        cta_block = (
+            f'<div id="cta" data-role="cta" class="cta action-system">{cta}</div>'
+            if has_cta
+            else ""
+        )
+        return _FALLBACK_RECRUITMENT_DENSE.format(
+            width=width, height=height,
+            primary=primary, secondary=secondary, accent=accent, text_color=text_color,
+            title=title, subtitle=subtitle, cta=cta,
+            brand_label=brand_label or escape("POSTER DETAILS", quote=True),
+            category_label=escape("Action Details" if has_cta else "Information System", quote=True),
+            side_block=side_block,
+            cta_block=cta_block,
+            footer_note=escape("占位信息可在确认后替换为正式内容", quote=True),
+            detail_cards=detail_cards,
+            title_size=max(42, int(height * 0.055)),
+            subtitle_size=max(18, int(height * 0.024)),
+            cta_size=cta_size,
+            meta_size=meta_size,
+            note_size=note_size,
+            body_size=body_size,
+            grid_size=grid_size,
+        )
 
     # Select template based on content characteristics.
     if has_visual and has_cta:

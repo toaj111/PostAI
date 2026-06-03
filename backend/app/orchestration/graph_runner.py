@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
+from app.agents.content_expander import ContentExpander
 from app.agents.content_extractor import ContentExtractor
 from app.agents.layout_planner import SpatialLayoutPlanner
 from app.agents.style_director import StyleDirector
+from app.agents.visual_system_planner import VisualSystemPlanner
 from app.agents.vlm_critic import HeuristicVLMCritic
 from app.core.config import get_settings
 from app.core.events import SSEEvent, event
@@ -33,7 +35,9 @@ class GraphRunner:
     def __init__(
         self,
         content_extractor: ContentExtractor | None = None,
+        content_expander: ContentExpander | None = None,
         style_director: StyleDirector | None = None,
+        visual_system_planner: VisualSystemPlanner | None = None,
         layout_planner: SpatialLayoutPlanner | None = None,
         renderer=None,
         asset_store: AssetStore | None = None,
@@ -43,7 +47,9 @@ class GraphRunner:
 
         settings = get_settings()
         self.content_extractor = content_extractor or ContentExtractor()
+        self.content_expander = content_expander or ContentExpander()
         self.style_director = style_director or StyleDirector()
+        self.visual_system_planner = visual_system_planner or VisualSystemPlanner()
         self.layout_planner = layout_planner or SpatialLayoutPlanner()
         self.renderer = renderer or HTMLPainter()
         self.asset_store = asset_store or AssetStore(settings.asset_dir, settings.asset_url_path)
@@ -54,20 +60,50 @@ class GraphRunner:
     async def run_events(self, state: GraphState) -> AsyncIterator[SSEEvent]:
         try:
             yield event("job_started", {"job_id": state.job_id})
+            warning_cursor = 0
+
+            def _pop_new_warnings() -> list[str]:
+                nonlocal warning_cursor
+                warnings = state.warnings[warning_cursor:]
+                warning_cursor = len(state.warnings)
+                return warnings
+
+            def _mark_warnings_seen() -> None:
+                nonlocal warning_cursor
+                warning_cursor = len(state.warnings)
 
             # ── Content ──
             state.stage = GraphStage.content
             yield event("agent_start", {"job_id": state.job_id, "agent": "ContentExtractor", "message": "Parsing poster content"})
             state.content_plan = await retry_async(lambda: self.content_extractor.run(state), attempts=3)
             yield event("agent_complete", {"job_id": state.job_id, "agent": "ContentExtractor", "result": state.content_plan.model_dump(mode="json")})
+            for warning in _pop_new_warnings():
+                yield event("warning", {"job_id": state.job_id, "message": warning})
+
+            state.stage = GraphStage.content_expansion
+            yield event("agent_start", {"job_id": state.job_id, "agent": "ContentExpander", "message": "Expanding genre-specific poster information"})
+            state.content_expansion = await retry_async(lambda: self.content_expander.run(state), attempts=3)
+            yield event("agent_complete", {"job_id": state.job_id, "agent": "ContentExpander", "result": state.content_expansion.model_dump(mode="json")})
+            for warning in _pop_new_warnings():
+                yield event("warning", {"job_id": state.job_id, "message": warning})
 
             # ── Style ──
             state.stage = GraphStage.style
             yield event("agent_start", {"job_id": state.job_id, "agent": "StyleDirector", "message": "Planning visual style"})
             state.style = await retry_async(lambda: self.style_director.run(state), attempts=3)
             yield event("agent_complete", {"job_id": state.job_id, "agent": "StyleDirector", "result": state.style.model_dump(mode="json")})
+            for warning in _pop_new_warnings():
+                yield event("warning", {"job_id": state.job_id, "message": warning})
 
             while state.iteration_count < state.max_iterations:
+                # ── Visual System ──
+                state.stage = GraphStage.visual_system
+                yield event("agent_start", {"job_id": state.job_id, "agent": "VisualSystemPlanner", "message": "Planning executable visual layer system"})
+                state.visual_system = await retry_async(lambda: self.visual_system_planner.run(state), attempts=3)
+                yield event("agent_complete", {"job_id": state.job_id, "agent": "VisualSystemPlanner", "result": state.visual_system.model_dump(mode="json")})
+                for warning in _pop_new_warnings():
+                    yield event("warning", {"job_id": state.job_id, "message": warning})
+
                 # ── Layout (HTML) ──
                 state.stage = GraphStage.layout
                 yield event("agent_start", {"job_id": state.job_id, "agent": "SpatialLayoutPlanner", "message": "Designing poster HTML/CSS"})
@@ -83,6 +119,8 @@ class GraphRunner:
                 )
                 preview = state.layout_html[:200] + "..." if len(state.layout_html) > 200 else state.layout_html
                 yield event("agent_complete", {"job_id": state.job_id, "agent": "SpatialLayoutPlanner", "result": {"html_preview": preview, "html_url": state.html_url}})
+                for warning in _pop_new_warnings():
+                    yield event("warning", {"job_id": state.job_id, "message": warning})
 
                 # ── Render (Playwright) ──
                 state.stage = GraphStage.render
@@ -108,6 +146,8 @@ class GraphRunner:
                     **critique.model_dump(mode="json"),
                     "vision_reasoning": state.vision_reasoning,
                 })
+                for warning in _pop_new_warnings():
+                    yield event("warning", {"job_id": state.job_id, "message": warning})
 
                 # ── Decision ──
                 decision = route_after_critique(state)
@@ -115,6 +155,7 @@ class GraphRunner:
                     if critique.score < state.target_score and not critique.passed:
                         state.warnings.append(decision.reason)
                         yield event("warning", {"job_id": state.job_id, "message": decision.reason})
+                        _mark_warnings_seen()
                     break
 
                 state.iteration_count += 1
@@ -123,11 +164,22 @@ class GraphRunner:
                     yield event("agent_start", {"job_id": state.job_id, "agent": "StyleDirector", "message": decision.reason})
                     state.style = await retry_async(lambda: self.style_director.run(state), attempts=3)
                     yield event("agent_complete", {"job_id": state.job_id, "agent": "StyleDirector", "result": state.style.model_dump(mode="json")})
+                    for warning in _pop_new_warnings():
+                        yield event("warning", {"job_id": state.job_id, "message": warning})
                 elif decision.action == RouteAction.content:
                     state.stage = GraphStage.content
                     yield event("agent_start", {"job_id": state.job_id, "agent": "ContentExtractor", "message": decision.reason})
                     state.content_plan = await retry_async(lambda: self.content_extractor.run(state), attempts=3)
                     yield event("agent_complete", {"job_id": state.job_id, "agent": "ContentExtractor", "result": state.content_plan.model_dump(mode="json")})
+                    for warning in _pop_new_warnings():
+                        yield event("warning", {"job_id": state.job_id, "message": warning})
+
+                    state.stage = GraphStage.content_expansion
+                    yield event("agent_start", {"job_id": state.job_id, "agent": "ContentExpander", "message": "Re-expanding poster information after content feedback"})
+                    state.content_expansion = await retry_async(lambda: self.content_expander.run(state), attempts=3)
+                    yield event("agent_complete", {"job_id": state.job_id, "agent": "ContentExpander", "result": state.content_expansion.model_dump(mode="json")})
+                    for warning in _pop_new_warnings():
+                        yield event("warning", {"job_id": state.job_id, "message": warning})
 
             # ── Finalise ──
             state.stage = GraphStage.final
@@ -169,7 +221,9 @@ class GraphRunner:
             warnings=state.warnings,
             content_plan=state.content_plan,
             poster_brief=state.poster_brief,
+            content_expansion=state.content_expansion,
             art_direction=state.art_direction,
+            visual_system=state.visual_system,
             style=state.style,
             layout_tree=state.layout_tree,
             layout_html=state.layout_html,

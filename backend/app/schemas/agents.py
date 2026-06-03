@@ -109,6 +109,21 @@ class PosterBriefV2(BaseModel):
     must_not_do: list[str] = Field(default_factory=list)
 
 
+class ContentExpansionPlan(BaseModel):
+    """Genre-aware content expansion before visual/style planning."""
+
+    poster_type: str = Field(
+        default="custom",
+        description="event | music_event | exhibition | campaign | recruitment | product | informational | custom",
+    )
+    density_recommendation: str = Field(default="medium", description="sparse | medium | dense")
+    self_questions: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    inferred_messages: list[PosterMessage] = Field(default_factory=list)
+    inferred_visual_subjects: list[VisualSubject] = Field(default_factory=list)
+    must_not_invent: list[str] = Field(default_factory=list)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Compatibility converter — PosterBriefV2 ↔ ContentPlan
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -285,6 +300,60 @@ class ArtDirectionV2(BaseModel):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Phase 7 - VisualSystemPlan: executable visual layer blueprint
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class VisualLayerSpec(BaseModel):
+    """A concrete visual layer the HTML planner must implement."""
+
+    id: str = Field(
+        description="Stable layer id, e.g. base-field, texture-field, kinetic-symbol, cropped-type"
+    )
+    role: str = Field(
+        default="shape",
+        description=(
+            "background | texture | shape | symbol | typography | image | frame | "
+            "metadata | ornament | cta | qr | foreground"
+        ),
+    )
+    description: str
+    purpose: str = Field(default="", description="Why this layer exists in the poster system")
+    placement: str = Field(default="", description="Canvas placement/crop instructions")
+    scale: str = Field(default="", description="Relative scale, e.g. full_bleed, 30% canvas, oversized_crop")
+    css_approach: str = Field(
+        default="",
+        description="Implementation hint: gradient, svg, clip-path, grid, blend-mode, border, etc.",
+    )
+    priority: int = Field(default=5, ge=1, le=10)
+    presence: str = Field(default="recommended", description="required | recommended | optional | omit")
+
+
+class VisualSystemPlan(BaseModel):
+    """A poster-specific construction plan for visual richness.
+
+    This bridges ArtDirectionV2 and raw HTML generation. Instead of asking the
+    layout model to "be richer" in abstract terms, the graph now gives it an
+    explicit layer stack and composition target.
+    """
+
+    composition_archetype: str = Field(
+        default="centered_iconic",
+        description="swiss_grid | centered_iconic | diagonal_energy | editorial_spread | collage | typographic | cinematic | brutalist | minimal | ornamental | custom",
+    )
+    density: str = Field(default="medium", description="sparse | medium | dense")
+    focal_strategy: str = Field(default="", description="How the viewer's eye should move")
+    layer_count_target: int = Field(default=6, ge=1, le=12)
+    required_html_ids: list[str] = Field(
+        default_factory=list,
+        description="Layer ids that should appear as id attributes in generated HTML",
+    )
+    layers: list[VisualLayerSpec] = Field(default_factory=list)
+    typography_treatment: str = ""
+    rhythm_notes: str = ""
+    constraints: list[str] = Field(default_factory=list)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Compatibility converter — ArtDirectionV2 ↔ StyleGuide
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -414,4 +483,3 @@ class CritiqueResult(BaseModel):
                 total += 0
         data["score"] = max(0, min(100, round(total / 120 * 100)))
         return data
-

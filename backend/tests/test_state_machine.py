@@ -21,3 +21,6 @@ async def test_graph_runner_produces_final_output(tmp_path):
     # Phase 2: layout_html is set by the layout planner.
     assert response.layout_html is not None
     assert "<!DOCTYPE html>" in response.layout_html
+    assert response.content_expansion is not None
+    assert state.content_expansion is not None
+    assert response.content_expansion.poster_type == state.content_expansion.poster_type

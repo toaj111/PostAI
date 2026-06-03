@@ -3,177 +3,206 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PostAI Demo Frontend</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700&display=swap"
-      rel="stylesheet"
-    />
+    <title>PostAI 海报生成工作台</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="bg-shape bg-shape-1" aria-hidden="true"></div>
-    <div class="bg-shape bg-shape-2" aria-hidden="true"></div>
-
-    <main class="shell">
-      <header class="hero reveal">
-        <p class="eyebrow">POSTAI DEMO</p>
-        <h1>智能海报生成演示台</h1>
-        <p class="subtitle">
-          一页完成输入、生成、流式观测与结果预览，入口清晰，方便联调。
-        </p>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="app-kicker">PostAI</p>
+          <h1>海报生成工作台</h1>
+        </div>
+        <div class="server-status" aria-live="polite">
+          <span class="status-dot" id="serverDot" aria-hidden="true"></span>
+          <span id="serverText">检查服务中</span>
+        </div>
       </header>
 
-      <section class="panel reveal delay-1">
-        <div class="panel-head">
-          <h2>功能入口</h2>
-          <span class="status-dot" id="serverDot" title="服务状态"></span>
-        </div>
-
-        <div class="entry-grid">
-          <button id="healthBtn" class="entry-card">
-            <strong>健康检查</strong>
-            <span>GET /health</span>
-          </button>
-          <button id="generateBtn" class="entry-card entry-card-primary">
-            <strong>快速生成</strong>
-            <span>POST /api/v1/generate</span>
-          </button>
-          <button id="streamBtn" class="entry-card">
-            <strong>流式生成</strong>
-            <span>POST /api/v1/generate/stream</span>
-          </button>
-        </div>
+      <section class="action-strip" aria-label="主要操作">
+        <button id="healthBtn" class="button button-ghost" type="button">
+          检查服务
+        </button>
+        <button id="generateBtn" class="button button-secondary" type="button">
+          快速生成
+        </button>
+        <button id="streamBtn" class="button button-primary" type="button">
+          流式生成
+        </button>
+        <span id="runningTag" class="run-state">空闲</span>
       </section>
 
-      <section class="workspace reveal delay-2">
-        <form id="requestForm" class="card form-card">
-          <h3>生成参数</h3>
+      <div class="workspace">
+        <section class="panel input-panel" aria-labelledby="inputTitle">
+          <div class="panel-heading">
+            <div>
+              <p class="section-kicker">Request</p>
+              <h2 id="inputTitle">生成参数</h2>
+            </div>
+          </div>
 
-          <label class="field">
-            <span>主题 Prompt</span>
-            <textarea
-              id="prompt"
-              rows="4"
-              placeholder="例如：做一张当代艺术展海报，主题是&ldquo;静默的机器&rdquo;，极简、不要 CTA"
-            >
-为一个当代艺术展做一张极简海报，主题是&ldquo;静默的机器&rdquo;，不要按钮</textarea
-            >
-          </label>
+          <form id="requestForm">
+            <label class="field field-prompt">
+              <span>主题 Prompt</span>
+              <textarea
+                id="prompt"
+                rows="5"
+                placeholder="例如：为一个当代艺术展做一张极简海报，主题是静默的机器，不要按钮"
+              >为一个当代艺术展做一张极简海报，主题是“静默的机器”，不要按钮</textarea>
+            </label>
 
-          <div class="preset-bar">
-            <span class="preset-label">快捷预设</span>
-            <div class="preset-buttons">
-              <button type="button" class="preset-btn" data-prompt="为一个当代艺术展做一张极简海报，主题是&ldquo;静默的机器&rdquo;，不要按钮">展览</button>
+            <div class="preset-bar" aria-label="快捷预设">
+              <button type="button" class="preset-btn" data-prompt="为一个当代艺术展做一张极简海报，主题是“静默的机器”，不要按钮">展览</button>
               <button type="button" class="preset-btn" data-prompt="做一张纯文字爵士音乐节海报，极简排版，不要 CTA 按钮">纯文字</button>
               <button type="button" class="preset-btn" data-prompt="招聘海报，需要扫码报名，温暖友好的校园风格">招聘</button>
               <button type="button" class="preset-btn" data-prompt="产品发布海报，简洁高端，展示产品质感">产品</button>
               <button type="button" class="preset-btn" data-prompt="音乐节演出海报，高能量、大胆构图、霓虹色彩">活动</button>
-              <button type="button" class="preset-btn" data-prompt="只用抽象形状和色彩表达海边夏日的氛围">实验</button>
             </div>
-          </div>
 
-          <div class="field-row">
-            <label class="field">
-              <span>宽度</span>
-              <input
-                id="width"
-                type="number"
-                min="256"
-                max="4096"
-                value="768"
-              />
-            </label>
-            <label class="field">
-              <span>高度</span>
-              <input
-                id="height"
-                type="number"
-                min="256"
-                max="4096"
-                value="1152"
-              />
-            </label>
-          </div>
-
-          <div class="field-row">
-            <label class="field">
-              <span>最大迭代</span>
-              <input
-                id="maxIterations"
-                type="number"
-                min="1"
-                max="5"
-                value="2"
-              />
-            </label>
-            <label class="field">
-              <span>最小复审</span>
-              <input
-                id="minIterations"
-                type="number"
-                min="0"
-                max="4"
-                value="1"
-              />
-            </label>
-          </div>
-
-          <div class="field-row">
-            <label class="field">
-              <span>目标分数</span>
-              <input
-                id="targetScore"
-                type="number"
-                min="1"
-                max="100"
-                value="85"
-              />
-            </label>
-          </div>
-
-          <div class="reference-block">
-            <div class="reference-head">
-              <span class="reference-title">参考图片</span>
-              <button type="button" id="addReferenceBtn" class="add-ref-btn">
-                + 添加
-              </button>
+            <div class="field-grid">
+              <label class="field">
+                <span>宽度</span>
+                <input id="width" type="number" min="256" max="4096" value="768" />
+              </label>
+              <label class="field">
+                <span>高度</span>
+                <input id="height" type="number" min="256" max="4096" value="1152" />
+              </label>
+              <label class="field">
+                <span>最大迭代</span>
+                <input id="maxIterations" type="number" min="1" max="5" value="2" />
+              </label>
+              <label class="field">
+                <span>最小复审</span>
+                <input id="minIterations" type="number" min="0" max="4" value="1" />
+              </label>
+              <label class="field">
+                <span>目标分数</span>
+                <input id="targetScore" type="number" min="1" max="100" value="85" />
+              </label>
             </div>
-            <p class="reference-hint">
-              每张图可选择在线链接或本地上传，并填写描述。最多 5 张。
-            </p>
-            <div id="referenceList" class="reference-list"></div>
-          </div>
-        </form>
 
-        <section class="card output-card">
-          <div class="output-head">
-            <h3>输出面板</h3>
-            <span id="runningTag" class="tag">Idle</span>
-          </div>
-
-          <div class="preview-box" id="previewBox">
-            <p class="preview-placeholder">
-              暂无海报结果，点击"快速生成"或"流式生成"开始。
-            </p>
-          </div>
-
-          <div class="refine-panel" id="refinePanel">
-            <label class="field">
-              <span>微调提示词</span>
-              <textarea
-                id="refinePrompt"
-                rows="2"
-                placeholder="例如：把标题往下移动一点，主视觉放大，保持极简风格"
-              ></textarea>
-            </label>
-            <button id="refineBtn" type="button" disabled>微调当前海报</button>
-            <span id="refineStatus" class="refine-status hidden"></span>
-          </div>
-
-          <pre id="logArea" class="log" aria-live="polite"></pre>
+            <div class="reference-block">
+              <div class="subsection-head">
+                <div>
+                  <h3>参考图片</h3>
+                </div>
+                <button type="button" id="addReferenceBtn" class="button button-small">
+                  添加
+                </button>
+              </div>
+              <div id="referenceList" class="reference-list"></div>
+            </div>
+          </form>
         </section>
+
+        <section class="panel output-panel" aria-labelledby="outputTitle">
+          <div class="panel-heading output-heading">
+            <div>
+              <p class="section-kicker">Output</p>
+              <h2 id="outputTitle">结果预览</h2>
+            </div>
+            <div class="score-pill">
+              <span>评分</span>
+              <strong id="scoreValue">--</strong>
+            </div>
+          </div>
+
+          <div class="preview-frame" id="previewBox">
+            <div class="preview-empty">
+              <strong>暂无预览</strong>
+            </div>
+          </div>
+
+          <section class="progress-panel" aria-labelledby="progressTitle">
+            <div class="progress-head">
+              <div>
+                <h3 id="progressTitle">生成进度</h3>
+                <p id="progressMessage">准备就绪</p>
+              </div>
+              <strong id="progressPercent">0%</strong>
+            </div>
+            <div class="progress-track" aria-hidden="true">
+              <div id="progressBar" class="progress-bar"></div>
+            </div>
+            <ol class="steps" id="progressSteps">
+              <li data-step="content" class="step">
+                <span></span>
+                <strong>内容</strong>
+              </li>
+              <li data-step="style" class="step">
+                <span></span>
+                <strong>风格</strong>
+              </li>
+              <li data-step="layout" class="step">
+                <span></span>
+                <strong>布局</strong>
+              </li>
+              <li data-step="render" class="step">
+                <span></span>
+                <strong>渲染</strong>
+              </li>
+              <li data-step="critique" class="step">
+                <span></span>
+                <strong>评审</strong>
+              </li>
+              <li data-step="final" class="step">
+                <span></span>
+                <strong>完成</strong>
+              </li>
+            </ol>
+            <div class="run-meta">
+              <div>
+                <span>任务 ID</span>
+                <strong id="jobIdValue">--</strong>
+              </div>
+              <div>
+                <span>迭代</span>
+                <strong id="iterationValue">--</strong>
+              </div>
+              <div>
+                <span>当前阶段</span>
+                <strong id="stageValue">--</strong>
+              </div>
+            </div>
+          </section>
+        </section>
+      </div>
+
+      <section class="panel refine-panel" id="refinePanel" aria-labelledby="refineTitle">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">Refine</p>
+            <h2 id="refineTitle">微调当前海报</h2>
+          </div>
+          <span id="refineStatus" class="inline-status hidden"></span>
+        </div>
+        <div class="refine-grid">
+          <label class="field">
+            <span>微调提示词</span>
+            <textarea
+              id="refinePrompt"
+              rows="2"
+              placeholder="例如：把标题往下移动一点，主视觉放大，保持极简风格"
+            ></textarea>
+          </label>
+          <button id="refineBtn" class="button button-primary" type="button" disabled>
+            应用微调
+          </button>
+        </div>
+      </section>
+
+      <section class="panel log-panel" aria-labelledby="logTitle">
+        <div class="panel-heading">
+          <div>
+            <p class="section-kicker">Events</p>
+            <h2 id="logTitle">运行日志</h2>
+          </div>
+          <button id="clearLogBtn" type="button" class="button button-small button-ghost">
+            清空
+          </button>
+        </div>
+        <pre id="logArea" class="log" aria-live="polite"></pre>
       </section>
     </main>
 

@@ -37,16 +37,24 @@ class HeuristicVLMCritic:
         self.allow_model_fallback = settings.allow_model_fallback
         self.enable_thinking = settings.vision_enable_thinking
         self.thinking_budget = settings.vision_thinking_budget
+        self.html_context_chars = settings.vision_html_context_chars
+        self._vision_model_warning = _vision_model_warning(settings.vision_model)
         self.vision_client = vision_client or StructuredLLMClient(
             api_key=settings.vision_api_key,
             base_url=settings.vision_base_url,
             model=settings.vision_model,
+            timeout=settings.vision_timeout_seconds,
             response_format=settings.llm_response_format,
+            max_tokens=settings.vision_max_tokens,
         )
 
     # ── public entry point ──
 
     async def run(self, state: GraphState) -> CritiqueResult:
+        if self._configured_for_vision() and self._vision_model_warning:
+            warning = self._vision_model_warning
+            if warning not in state.warnings:
+                state.warnings.append(warning)
         try:
             return await self._run_vision_model(state)
         except (LLMCallError, SchemaParseError) as exc:
@@ -81,10 +89,13 @@ class HeuristicVLMCritic:
 
     def _build_vision_messages(self, state: GraphState, image_url: str) -> list[dict]:
         """Construct the multi-modal messages — Phase 5 with brief + art direction."""
-        html_snippet = state.layout_html[:3000] if state.layout_html else ""
+        html_snippet = state.layout_html[:self.html_context_chars] if state.layout_html else ""
 
         brief_json = state.poster_brief.model_dump(mode="json") if state.poster_brief else None
         ad_json = state.art_direction.model_dump(mode="json") if state.art_direction else None
+        visual_system_json = (
+            state.visual_system.model_dump(mode="json") if state.visual_system else None
+        )
 
         system_prompt = (
             "You are a strict poster art director reviewing a rendered poster image.\n"
@@ -111,6 +122,10 @@ class HeuristicVLMCritic:
             "empty placeholder visual, weak hierarchy, or no texture/layering. "
             "A finished poster should have a clear compositional idea and enough "
             "visual craft to feel intentional.\n\n"
+            "If a VisualSystemPlan is provided, check whether the required layer "
+            "ids and the planned layer count appear to be implemented. Penalize "
+            "posters that ignore the plan, merge everything into a single vague "
+            "background, or omit required_html_ids.\n\n"
             "The top-level **score** field MUST be a single integer from 0 to 100. "
             "Put the dimension scores in the separate **rubric** object. "
             "Never put the rubric object inside the score field.\n\n"
@@ -147,7 +162,8 @@ class HeuristicVLMCritic:
         user_text = (
             f"Poster brief (PosterBriefV2):\n{json.dumps(brief_json, ensure_ascii=False) if brief_json else 'none'}\n\n"
             f"Art direction (ArtDirectionV2):\n{json.dumps(ad_json, ensure_ascii=False) if ad_json else 'none'}\n\n"
-            f"HTML layout (first 3000 chars):\n{html_snippet}\n\n"
+            f"Visual system plan (VisualSystemPlan):\n{json.dumps(visual_system_json, ensure_ascii=False) if visual_system_json else 'none'}\n\n"
+            f"HTML layout (first {self.html_context_chars} chars):\n{html_snippet}\n\n"
             "Review the rendered poster image and return a complete CritiqueResult."
         )
 
@@ -250,6 +266,55 @@ class HeuristicVLMCritic:
                     ),
                 ))
 
+        if state.visual_system is not None:
+            missing_layer_ids = [
+                layer_id
+                for layer_id in state.visual_system.required_html_ids
+                if layer_id and not self._html_mentions_identifier(html, layer_id)
+            ]
+            if missing_layer_ids:
+                desc = (
+                    "HTML appears to ignore required VisualSystemPlan layers: "
+                    + ", ".join(missing_layer_ids[:6])
+                )
+                legacy_issues.append(desc)
+                legacy_suggestions.append(
+                    "Implement the required visual-system layers with matching id or data-layer-id attributes."
+                )
+                structured.append(CritiqueIssue(
+                    type="composition",
+                    severity="major",
+                    target_id=None,
+                    description=desc,
+                    suggestion=(
+                        "Add visible HTML/CSS layers for the missing VisualSystemPlan ids, "
+                        "rather than merging them into a single background."
+                    ),
+                ))
+
+            if not self._allows_extreme_minimalism(state):
+                layer_count = self._visual_layer_count(html)
+                target = max(4, min(state.visual_system.layer_count_target - 1, 7))
+                if layer_count < target:
+                    desc = (
+                        f"Visual layer signal is too low for the planned system "
+                        f"({layer_count} cues found, target about {target})."
+                    )
+                    legacy_issues.append(desc)
+                    legacy_suggestions.append(
+                        "Use the VisualSystemPlan to add distinct texture, focal, shape, frame, and metadata layers."
+                    )
+                    structured.append(CritiqueIssue(
+                        type="style",
+                        severity="major",
+                        target_id=None,
+                        description=desc,
+                        suggestion=(
+                            "Increase distinct visual layers according to the VisualSystemPlan "
+                            "instead of relying on a sparse centered composition."
+                        ),
+                    ))
+
         # ── Determine revision_focus ──
         if not structured:
             revision_focus = "final"
@@ -340,6 +405,17 @@ class HeuristicVLMCritic:
         )
         return sum(1 for cue in cues if cue in lower)
 
+    def _html_mentions_identifier(self, html: str, identifier: str) -> bool:
+        """Return True when a visual-system id appears as id, data-layer-id, or class."""
+        lower = html.lower()
+        ident = re.escape(identifier.lower())
+        patterns = (
+            rf'id\s*=\s*["\']{ident}["\']',
+            rf'data-layer-id\s*=\s*["\']{ident}["\']',
+            rf'class\s*=\s*["\'][^"\']*\b{ident}\b[^"\']*["\']',
+        )
+        return any(re.search(pattern, lower) for pattern in patterns)
+
     def _looks_like_placeholder_icon(self, html: str) -> bool:
         """Detect the old fallback style: a single faint circle as key visual."""
         lower = html.lower()
@@ -348,3 +424,16 @@ class HeuristicVLMCritic:
         has_visual = 'data-role="visual"' in lower or "class=\"visual\"" in lower
         small_svg = bool(re.search(r"\.visual\s+svg\s*\{[^}]*width:\s*3\d%", lower))
         return has_visual and circle_count <= 2 and path_count == 0 and small_svg
+
+
+def _vision_model_warning(model: str) -> str:
+    model_lower = model.lower()
+    if model_lower.startswith("mock-"):
+        return ""
+    vision_tokens = ("vl", "vision", "omni")
+    if any(token in model_lower for token in vision_tokens):
+        return ""
+    return (
+        f"VISION_MODEL={model} does not look like a vision-capable model. "
+        "Use a VL/vision model such as qwen3-vl-flash, qwen3-vl-plus, or qwen-vl-max-latest."
+    )

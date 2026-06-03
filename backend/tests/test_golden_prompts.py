@@ -11,6 +11,7 @@ of the pipeline output.
 
 import pytest
 
+from app.agents.content_expander import ContentExpander
 from app.agents.content_extractor import ContentExtractor
 from app.agents.layout_planner import SpatialLayoutPlanner
 from app.agents.style_director import StyleDirector
@@ -21,6 +22,7 @@ from app.schemas.agents import (
     ElementContent,
     PosterBriefV2,
     PosterIntent,
+    poster_brief_to_content_plan,
 )
 from app.schemas.layout import CanvasSpec, ElementType
 from app.schemas.state import GraphState
@@ -72,7 +74,7 @@ GOLDEN_PROMPTS = [
     {
         "name": "music_festival",
         "prompt": "音乐节演出海报，高能量、大胆构图、霓虹色彩",
-        "expected_cta_policy": "omit",
+        "expected_cta_policy": "optional",
         "expected_has_cta": False,
     },
 ]
@@ -88,6 +90,10 @@ def _run_pipeline(prompt: str) -> GraphState:
     plan = ContentExtractor()._run_rules(state)
     state.content_plan = plan
     state.poster_brief = content_plan_to_poster_brief(plan)
+    expander = ContentExpander()
+    state.content_expansion = expander._run_rules(state)
+    state.poster_brief = expander.apply_expansion(state.poster_brief, state.content_expansion)
+    state.content_plan = poster_brief_to_content_plan(state.poster_brief)
 
     # Style
     guide = StyleDirector()._run_rules(state)

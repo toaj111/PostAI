@@ -73,19 +73,25 @@ class StructuredLLMClient:
         api_key: str | None,
         base_url: str | None,
         model: str,
-        timeout: float = 60,
+        timeout: float | None = None,
         response_format: str = "json_schema",
         temperature: float | None = None,
         raw_temperature: float | None = None,
+        max_tokens: int | None = None,
+        raw_max_tokens: int | None = None,
+        raw_timeout: float | None = None,
     ) -> None:
         settings = get_settings()
         self.api_key = api_key
         self.base_url = base_url
         self.model = model
-        self.timeout = timeout
+        self.timeout = settings.llm_timeout_seconds if timeout is None else timeout
+        self.raw_timeout = settings.llm_raw_timeout_seconds if raw_timeout is None else raw_timeout
         self.response_format = response_format
         self.temperature = settings.llm_temperature if temperature is None else temperature
         self.raw_temperature = settings.llm_raw_temperature if raw_temperature is None else raw_temperature
+        self.max_tokens = settings.llm_max_tokens if max_tokens is None else max_tokens
+        self.raw_max_tokens = settings.llm_raw_max_tokens if raw_max_tokens is None else raw_max_tokens
 
     async def parse(self, *, messages: list[dict[str, Any]], response_model: type[ModelT]) -> ModelT:
         if not self.api_key or not self.base_url or self.model.startswith("mock-"):
@@ -131,6 +137,7 @@ class StructuredLLMClient:
             "messages": messages,
             "temperature": self.raw_temperature if force_raw else self.temperature,
         }
+        self._apply_token_limit(payload, force_raw=force_raw)
         if not force_raw and self.response_format == "json_schema":
             payload["response_format"] = {
                 "type": "json_schema",
@@ -156,13 +163,15 @@ class StructuredLLMClient:
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         start = time.perf_counter()
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            request_timeout = self.raw_timeout if force_raw else self.timeout
+            async with httpx.AsyncClient(timeout=request_timeout) as client:
                 response = await client.post(url, headers=headers, json=payload)
                 response.raise_for_status()
         except httpx.HTTPError as exc:
             elapsed = (time.perf_counter() - start) * 1000
-            logger.error("<-- LLM FAIL | %s | duration=%.1fms | error=%s", url, elapsed, exc)
-            raise LLMCallError(f"LLM request failed: {exc}") from exc
+            error_detail = f"{type(exc).__name__}: {exc}"
+            logger.error("<-- LLM FAIL | %s | duration=%.1fms | error=%s", url, elapsed, error_detail)
+            raise LLMCallError(f"LLM request failed: {error_detail}") from exc
 
         elapsed = (time.perf_counter() - start) * 1000
         data = response.json()
@@ -244,6 +253,7 @@ class StructuredLLMClient:
             "messages": messages,
             "temperature": 0.2,
         }
+        self._apply_token_limit(payload, force_raw=False)
 
         # When thinking is disabled we can use strict response_format as a
         # fallback; otherwise we trust the prompt to produce valid JSON.
@@ -271,8 +281,9 @@ class StructuredLLMClient:
                 response.raise_for_status()
         except httpx.HTTPError as exc:
             elapsed = (time.perf_counter() - start) * 1000
-            logger.error("<-- VISION FAIL | %s | duration=%.1fms | error=%s", url, elapsed, exc)
-            raise LLMCallError(f"Vision request failed: {exc}") from exc
+            error_detail = f"{type(exc).__name__}: {exc}"
+            logger.error("<-- VISION FAIL | %s | duration=%.1fms | error=%s", url, elapsed, error_detail)
+            raise LLMCallError(f"Vision request failed: {error_detail}") from exc
 
         elapsed = (time.perf_counter() - start) * 1000
         data = response.json()
@@ -306,6 +317,11 @@ class StructuredLLMClient:
         content_display = content if len(content) <= 2000 else content[:2000] + f"... [truncated, total {len(content)} chars]"
         logger.info("<-- VISION OK   | %s | status=%d | duration=%.1fms | content=%s", url, response.status_code, elapsed, content_display)
         return content, reasoning
+
+    def _apply_token_limit(self, payload: dict[str, Any], *, force_raw: bool) -> None:
+        token_limit = self.raw_max_tokens if force_raw else self.max_tokens
+        if token_limit and token_limit > 0:
+            payload["max_tokens"] = token_limit
 
     def validate_json(self, content: str, response_model: type[ModelT]) -> ModelT:
         try:

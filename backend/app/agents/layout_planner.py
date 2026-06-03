@@ -34,6 +34,7 @@ class SpatialLayoutPlanner:
     def __init__(self, llm_client: StructuredLLMClient | None = None) -> None:
         settings = get_settings()
         self.allow_model_fallback = settings.allow_model_fallback
+        self.feedback_context_chars = settings.llm_feedback_context_chars
         self.llm_client = llm_client or StructuredLLMClient(
             api_key=settings.llm_api_key,
             base_url=settings.llm_base_url,
@@ -164,6 +165,11 @@ class SpatialLayoutPlanner:
             "- RECOMMENDED elements → should appear if composition benefits.\n"
             "- OPTIONAL elements → may be omitted when they weaken the design.\n"
             "- OMIT elements → MUST NOT appear.\n"
+            "- ContentExpansionPlan placeholders such as DATE TBD, VENUE TBD, "
+            "LINEUP TBA, SCHEDULE TBA, or TICKETS INFO are intentional editable "
+            "poster slots. For event/music/informational posters, use the "
+            "recommended placeholder slots to build a richer information "
+            "architecture instead of dropping all missing facts.\n"
             "- Preserve the visual hierarchy from importance/priority values.\n\n"
             "CSS GUIDANCE:\n"
             f"- Set html and body to exactly width:{w}px; height:{h}px; "
@@ -194,6 +200,17 @@ class SpatialLayoutPlanner:
             "- Give the headline a deliberate typographic treatment, not default "
             "browser text sizing. Use poster details only when they clarify the "
             "concept; never invent factual dates, venues, prices, or sponsors.\n\n"
+            "VISUAL SYSTEM PLAN:\n"
+            "- If a VisualSystemPlan is provided, treat it as the construction "
+            "blueprint for the poster. Implement its layers as visible HTML/CSS, "
+            "using each layer id as an HTML id attribute when presence is required "
+            "or recommended.\n"
+            "- Do not collapse several planned layers into one vague decorative "
+            "background. A texture layer, focal visual, directional shape, frame, "
+            "metadata strip, and headline system should be visually distinguishable "
+            "when they are in the plan.\n"
+            "- If the plan lists required_html_ids, those ids must appear in the "
+            "HTML source unless the brief explicitly says to omit them.\n\n"
             f"COLOUR PALETTE:\n"
             f"  background={bg_color}, foreground={fg_color}, "
             f"accent={accent_color}, secondary={secondary_color}"
@@ -223,7 +240,13 @@ class SpatialLayoutPlanner:
 
         # ── User prompt — structured context ──
         brief_json = brief.model_dump(mode="json") if brief else None
+        content_expansion_json = (
+            state.content_expansion.model_dump(mode="json") if state.content_expansion else None
+        )
         ad_json = ad.model_dump(mode="json") if ad else None
+        visual_system_json = (
+            state.visual_system.model_dump(mode="json") if state.visual_system else None
+        )
 
         user_parts = [
             f"User prompt: {state.user_prompt}",
@@ -231,7 +254,11 @@ class SpatialLayoutPlanner:
             "",
             f"Poster brief (PosterBriefV2):\n{json.dumps(brief_json, ensure_ascii=False) if brief_json else 'none'}",
             "",
+            f"Content expansion plan (ContentExpansionPlan):\n{json.dumps(content_expansion_json, ensure_ascii=False) if content_expansion_json else 'none'}",
+            "",
             f"Art direction (ArtDirectionV2):\n{json.dumps(ad_json, ensure_ascii=False) if ad_json else 'none'}",
+            "",
+            f"Visual system plan (VisualSystemPlan):\n{json.dumps(visual_system_json, ensure_ascii=False) if visual_system_json else 'none'}",
             "",
             "ELEMENT PRESENCE RULES (mandatory):",
             omission_text,
@@ -278,7 +305,7 @@ class SpatialLayoutPlanner:
                 + json.dumps(state.render_result.console_errors, ensure_ascii=False)
             )
         if state.vision_reasoning:
-            parts.append(f"Vision model reasoning: {state.vision_reasoning[:2000]}")
+            parts.append(f"Vision model reasoning: {state.vision_reasoning[:self.feedback_context_chars]}")
         if latest_fb.vision_description:
             parts.append(f"What the vision model saw: {latest_fb.vision_description}")
         if latest_fb.issues:
@@ -335,6 +362,10 @@ class SpatialLayoutPlanner:
         has_cta = False
         has_visual = False
         has_subtitle = False
+        detail_items: list[tuple[str, str]] = []
+        qr_required = False
+        brand_label = ""
+        detail_roles = {"body", "meta", "caption", "date", "venue", "price", "sponsor"}
 
         # Prefer PosterBriefV2 messages for more accurate presence.
         if brief and brief.messages:
@@ -347,11 +378,22 @@ class SpatialLayoutPlanner:
                         has_subtitle = True
                 elif msg.role == "cta":
                     cta = msg.content
-                    if msg.presence == "required":
+                    if msg.presence == "required" or (
+                        msg.presence in {"recommended", "optional"}
+                        and brief.content_strategy.cta_policy != "omit"
+                    ):
                         has_cta = True
+                    if "qr" in msg.id.lower() or "扫码" in msg.content:
+                        qr_required = True
+                elif msg.presence in ("required", "recommended") and msg.role in detail_roles:
+                    detail_items.append((self._detail_label(msg.id, msg.role), msg.content))
+                if "字节" in msg.content or "bytedance" in msg.content.lower():
+                    brand_label = "ByteDance"
             for vs in brief.visual_subjects:
                 if vs.presence not in ("omit", "none") and vs.role != "none":
                     has_visual = True
+                if "qr" in vs.id.lower() or vs.role == "qr":
+                    qr_required = True
         else:
             # Legacy element-based detection.
             for el in elements:
@@ -365,9 +407,30 @@ class SpatialLayoutPlanner:
                     cta = el.content
                     if el.presence == "required":
                         has_cta = True
+                    if "qr" in el.id.lower() or "扫码" in el.content:
+                        qr_required = True
                 elif el.type.value == "image" or el.role == "visual_label":
                     if el.presence != "omit":
                         has_visual = True
+                elif el.presence in ("required", "recommended") and el.role in detail_roles:
+                    detail_items.append((self._detail_label(el.id, el.role or ""), el.content))
+                if "字节" in el.content or "bytedance" in el.content.lower():
+                    brand_label = "ByteDance"
+
+        if (
+            brief
+            and brief.content_strategy.information_density == "sparse"
+            and not qr_required
+        ):
+            detail_items = []
+
+        if state.visual_system is not None:
+            has_visual = has_visual or any(
+                layer.presence != "omit"
+                and layer.priority >= 7
+                and layer.role in {"image", "symbol", "illustration", "shape"}
+                for layer in state.visual_system.layers
+            )
 
         # Use ArtDirectionV2 colours when available.
         if state.art_direction is not None:
@@ -397,6 +460,9 @@ class SpatialLayoutPlanner:
             has_cta=has_cta,
             has_visual=has_visual,
             has_subtitle=has_subtitle,
+            details=detail_items,
+            qr_required=qr_required,
+            brand_label=brand_label,
         )
 
     # ── helpers ──
@@ -407,3 +473,25 @@ class SpatialLayoutPlanner:
             and self.llm_client.base_url
             and not self.llm_client.model.startswith("mock-")
         )
+
+    def _detail_label(self, item_id: str, role: str) -> str:
+        lowered = item_id.lower()
+        if role == "date" or "date" in lowered or "time" in lowered:
+            return "日期 / 时间"
+        if role == "venue" or "venue" in lowered or "location" in lowered:
+            return "地点"
+        if "lineup" in lowered or "artist" in lowered:
+            return "阵容"
+        if "stage" in lowered or "program" in lowered or "schedule" in lowered:
+            return "节目"
+        if role == "price" or "ticket" in lowered:
+            return "票务"
+        if "salary" in lowered or "薪资" in item_id:
+            return "薪资待遇"
+        if "benefit" in lowered or "福利" in item_id:
+            return "福利"
+        if "require" in lowered or "要求" in item_id:
+            return "岗位要求"
+        if "qr" in lowered or role == "caption":
+            return "报名说明"
+        return "信息"
