@@ -75,6 +75,22 @@ def test_fallback_image_led_template():
     assert "text-zone" in html  # image-led has separate text zone
 
 
+def test_fallback_visual_only_template_omits_headline():
+    """Visual-only template should omit a synthetic headline."""
+    html = _build_fallback_html(
+        width=400, height=600,
+        title="",
+        subtitle="Sea breeze, warm dusk",
+        has_cta=False,
+        has_visual=True,
+        has_subtitle=True,
+        has_headline=False,
+    )
+    assert 'id="headline"' not in html
+    assert "Sea breeze, warm dusk" in html
+    assert "ABSTRACT / POSTER" in html
+
+
 def test_fallback_event_info_template():
     """Event info template: title + info + CTA bar, no image."""
     html = _build_fallback_html(
