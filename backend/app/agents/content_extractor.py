@@ -52,9 +52,14 @@ class ContentExtractor:
         """
         try:
             brief = await self._run_llm_v2(state)
+            brief = self._repair_brief(
+                brief,
+                prompt=state.user_prompt,
+                warnings=state.warnings,
+            )
+            self._validate_brief(brief, prompt=state.user_prompt)
             state.poster_brief = brief
             plan = poster_brief_to_content_plan(brief)
-            self._validate_brief(brief)
             return plan
         except (LLMCallError, SchemaParseError) as exc:
             if self._configured_for_llm() and not self.allow_model_fallback:
@@ -99,6 +104,10 @@ class ContentExtractor:
                     "target_audience, and tone.\n"
                     "Set content_strategy with headline_policy, information_density, "
                     "cta_policy, image_policy, and inference_policy.\n\n"
+                    "For abstract, visual-first, or no-headline posters, zero required "
+                    "text messages is allowed. In that case set "
+                    "headline_policy='no_headline' and include at least one concrete "
+                    "visual_subject with presence='required'.\n\n"
                     "Make the brief visually generative, not merely textual. "
                     "When the user has not requested strict type-only minimalism, "
                     "include at least one visual_subject that can become a concrete "
@@ -252,20 +261,232 @@ class ContentExtractor:
                 "不要凭空编造精确日期地点",
                 "不要默认加入报名按钮",
             ]
-        return payload
+        return self._normalize_visual_label_payload(payload)
 
     # ── validation ──
 
-    def _validate_brief(self, brief: PosterBriefV2) -> None:
-        """Ensure the PosterBriefV2 has at least one required message."""
-        required_msgs = [
-            m for m in brief.messages
-            if m.presence == "required" and m.importance >= 8
-        ]
-        if not required_msgs:
-            raise SchemaParseError(
-                "PosterBriefV2 must contain at least one required message with importance >= 8"
+    def _validate_brief(self, brief: PosterBriefV2, prompt: str = "") -> None:
+        """Ensure the PosterBriefV2 has a usable text or visual anchor."""
+        if self._core_required_messages(brief):
+            return
+        if self._is_text_light_brief(prompt, brief) and self._has_visual_anchor(brief):
+            return
+        raise SchemaParseError(
+            "PosterBriefV2 must contain a required core message with importance >= 8, "
+            "or set headline_policy='no_headline' with at least one usable visual_subject"
+        )
+
+    def _repair_brief(
+        self,
+        brief: PosterBriefV2,
+        *,
+        prompt: str,
+        warnings: list[str] | None = None,
+    ) -> PosterBriefV2:
+        repaired = brief.model_copy(deep=True)
+        self._normalize_visual_label_messages(repaired)
+
+        if self._core_required_messages(repaired):
+            return repaired
+
+        if self._is_text_light_brief(prompt, repaired):
+            if self._has_visual_anchor(repaired):
+                repaired.content_strategy.headline_policy = "no_headline"
+                if warnings is not None:
+                    warnings.append(
+                        "ContentExtractor repaired brief: accepted a no-headline visual-first brief via visual anchor"
+                    )
+                return repaired
+
+        candidate = self._best_repair_candidate(repaired)
+        if candidate is None:
+            return repaired
+
+        changed = candidate.presence != "required" or candidate.importance < 8
+        candidate.presence = "required"
+        candidate.importance = max(candidate.importance, 8)
+        if changed and warnings is not None:
+            warnings.append(
+                f"ContentExtractor repaired brief: promoted '{candidate.id}' to the core required message"
             )
+        return repaired
+
+    def _normalize_visual_label_payload(self, payload: dict) -> dict:
+        messages = payload.get("messages")
+        if not isinstance(messages, list):
+            return payload
+
+        visual_subjects = payload.get("visual_subjects")
+        if not isinstance(visual_subjects, list):
+            visual_subjects = []
+            payload["visual_subjects"] = visual_subjects
+
+        known_ids = {
+            str(item.get("id", "")).strip()
+            for item in visual_subjects
+            if isinstance(item, dict)
+        }
+        normalized_messages = []
+
+        for item in messages:
+            if not isinstance(item, dict):
+                normalized_messages.append(item)
+                continue
+            if str(item.get("role", "body")) != "visual_label":
+                normalized_messages.append(item)
+                continue
+
+            visual_id = str(item.get("id", "")).strip() or f"visual-{len(visual_subjects) + 1}"
+            if visual_id not in known_ids:
+                visual_subjects.append(
+                    {
+                        "id": visual_id,
+                        "role": "illustration",
+                        "description": str(item.get("content") or visual_id),
+                        "presence": item.get("presence", "recommended"),
+                        "source": self._coerce_visual_source(item.get("source")),
+                        "avoid": [],
+                    }
+                )
+                known_ids.add(visual_id)
+
+        payload["messages"] = normalized_messages
+        return payload
+
+    def _normalize_visual_label_messages(self, brief: PosterBriefV2) -> None:
+        known_ids = {subject.id for subject in brief.visual_subjects}
+        kept_messages: list[PosterMessage] = []
+
+        for message in brief.messages:
+            if message.role != "visual_label":
+                kept_messages.append(message)
+                continue
+
+            if message.id not in known_ids:
+                brief.visual_subjects.append(
+                    VisualSubject(
+                        id=message.id,
+                        role="illustration",
+                        description=message.content,
+                        presence=message.presence,
+                        source=self._coerce_visual_source(message.source),
+                    )
+                )
+                known_ids.add(message.id)
+
+        brief.messages = kept_messages
+
+    def _core_required_messages(self, brief: PosterBriefV2) -> list[PosterMessage]:
+        return [
+            message
+            for message in brief.messages
+            if self._is_core_text_message(message)
+            and message.presence == "required"
+            and message.importance >= 8
+        ]
+
+    def _is_core_text_message(self, message: PosterMessage) -> bool:
+        return (
+            message.role not in {"cta", "visual_label"}
+            and bool(message.content.strip())
+        )
+
+    def _has_visual_anchor(self, brief: PosterBriefV2) -> bool:
+        return any(
+            subject.presence != "omit"
+            and subject.role != "none"
+            and subject.description.strip()
+            for subject in brief.visual_subjects
+        )
+
+    def _best_repair_candidate(self, brief: PosterBriefV2) -> PosterMessage | None:
+        candidates = [
+            message
+            for message in brief.messages
+            if self._is_core_text_message(message)
+            and message.source in {"user", "inferred"}
+        ]
+        if not candidates:
+            return None
+        return min(
+            candidates,
+            key=lambda message: (
+                self._message_role_rank(message.role),
+                0 if message.source == "user" else 1,
+                -message.importance,
+                len(message.content),
+            ),
+        )
+
+    def _message_role_rank(self, role: str) -> int:
+        if role == "headline":
+            return 0
+        if role == "subhead":
+            return 1
+        return 2
+
+    def _is_text_light_brief(self, prompt: str, brief: PosterBriefV2) -> bool:
+        if brief.content_strategy.headline_policy == "no_headline":
+            return True
+
+        if self._wants_type_only(prompt) or self._wants_abstract_or_visual_first(prompt):
+            return True
+
+        if brief.content_strategy.headline_policy == "minimal":
+            return True
+
+        prompt_lower = prompt.lower()
+        poster_type = brief.poster_intent.poster_type.lower()
+        tone = [item.lower() for item in brief.poster_intent.tone]
+        visual_subject_count = sum(
+            1
+            for subject in brief.visual_subjects
+            if subject.presence != "omit" and subject.role != "none"
+        )
+        text_message_count = sum(
+            1 for message in brief.messages if self._is_core_text_message(message)
+        )
+
+        if poster_type in {"artistic", "abstract"}:
+            return True
+        if any(token in tone for token in ("minimal", "abstract", "atmospheric", "visual")):
+            return True
+        if "no headline" in prompt_lower:
+            return True
+        if visual_subject_count > 0 and text_message_count <= 1 and brief.content_strategy.cta_policy == "omit":
+            return True
+        return False
+
+    def _wants_abstract_or_visual_first(self, prompt: str) -> bool:
+        lower = prompt.lower()
+        tokens = [
+            "\u62bd\u8c61",
+            "\u51e0\u4f55",
+            "\u5f62\u72b6",
+            "\u8272\u5f69",
+            "\u7eb9\u7406",
+            "\u6c1b\u56f4",
+            "\u60c5\u7eea",
+            "\u89c6\u89c9\u4e3a\u4e3b",
+            "\u53ea\u7528\u62bd\u8c61",
+            "abstract",
+            "geometric",
+            "geometry",
+            "shape",
+            "texture",
+            "pattern",
+            "atmosphere",
+            "mood",
+            "visual-first",
+            "image-led",
+            "no headline",
+        ]
+        return any(token in prompt or token in lower for token in tokens)
+
+    def _coerce_visual_source(self, source: str | None) -> str:
+        if source in {"user", "reference", "inferred"}:
+            return source
+        return "inferred"
 
     # ── deterministic fallback ──
 

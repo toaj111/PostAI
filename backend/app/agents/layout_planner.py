@@ -492,21 +492,28 @@ class SpatialLayoutPlanner:
         elements = state.content_plan.elements if state.content_plan else []
         brief = state.poster_brief
 
-        title = "Poster"
+        title = ""
         subtitle = ""
         cta = "Learn More"
         has_cta = False
         has_visual = False
         has_subtitle = False
+        has_headline = False
+        no_headline_mode = (
+            brief is not None
+            and brief.content_strategy.headline_policy == "no_headline"
+        )
 
         # Prefer PosterBriefV2 messages for more accurate presence.
-        if brief and brief.messages:
+        if brief is not None:
             for msg in brief.messages:
                 if msg.role == "headline":
                     title = msg.content
+                    if msg.presence != "omit" and msg.content.strip():
+                        has_headline = True
                 elif msg.role == "subhead":
                     subtitle = msg.content
-                    if msg.presence != "omit":
+                    if msg.presence != "omit" and msg.content.strip():
                         has_subtitle = True
                 elif msg.role == "cta":
                     cta = msg.content
@@ -520,9 +527,11 @@ class SpatialLayoutPlanner:
             for el in elements:
                 if el.id == "title" or el.role == "headline":
                     title = el.content
+                    if el.presence != "omit" and el.content.strip():
+                        has_headline = True
                 elif el.id == "subtitle" or el.role == "subhead":
                     subtitle = el.content
-                    if el.presence != "omit":
+                    if el.presence != "omit" and el.content.strip():
                         has_subtitle = True
                 elif el.id == "cta" or el.role == "cta":
                     cta = el.content
@@ -531,6 +540,10 @@ class SpatialLayoutPlanner:
                 elif el.type.value == "image" or el.role == "visual_label":
                     if el.presence != "omit":
                         has_visual = True
+
+        if not has_headline and not no_headline_mode:
+            title = title or "Poster"
+            has_headline = bool(title.strip())
 
         # Use ArtDirectionV2 colours when available.
         if state.art_direction is not None:
@@ -560,6 +573,7 @@ class SpatialLayoutPlanner:
             has_cta=has_cta,
             has_visual=has_visual,
             has_subtitle=has_subtitle,
+            has_headline=has_headline,
         )
 
     # ── helpers ──

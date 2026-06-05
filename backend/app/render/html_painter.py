@@ -191,6 +191,64 @@ _FALLBACK_IMAGE_LED = """<!DOCTYPE html>
 </body>
 </html>"""
 
+_FALLBACK_VISUAL_ONLY = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  *, *::before, *::after {{ margin:0; padding:0; box-sizing:border-box; }}
+  body {{ width:{width}px; height:{height}px; overflow:hidden; position:relative;
+          font-family:"Microsoft YaHei","PingFang SC","Noto Sans CJK SC",Arial,sans-serif;
+          background:{primary}; color:{text_color}; }}
+  .bg {{ position:absolute; inset:0; background:
+    radial-gradient(circle at 18% 22%, {accent}38 0 18%, transparent 18.4%),
+    radial-gradient(circle at 82% 76%, {secondary}88 0 24%, transparent 24.6%),
+    linear-gradient(155deg, {primary} 0%, {secondary} 58%, {primary} 100%);
+  }}
+  .texture {{ position:absolute; inset:0; opacity:.18;
+    background:
+      repeating-linear-gradient(115deg, rgba(255,255,255,.08) 0 1px, transparent 1px 14px),
+      repeating-linear-gradient(0deg, rgba(0,0,0,.14) 0 1px, transparent 1px 10px);
+    mix-blend-mode:overlay;
+  }}
+  .index {{ position:absolute; right:7%; top:9%; writing-mode:vertical-rl;
+    font-size:{meta_size}px; font-weight:800; color:{accent}; letter-spacing:.12em; }}
+  .visual {{ position:absolute; inset:8% 6% 15% 6%; display:flex; align-items:center;
+    justify-content:center; overflow:hidden; }}
+  .visual::before {{ content:""; position:absolute; width:82%; aspect-ratio:1; border:2px solid {accent};
+    opacity:.38; transform:rotate(-10deg); }}
+  .visual::after {{ content:""; position:absolute; right:8%; bottom:6%; width:34%; height:16%;
+    background:{accent}; opacity:.8; transform:skewX(-18deg) rotate(-6deg); mix-blend-mode:screen; }}
+  .visual svg {{ position:relative; width:88%; height:88%; filter:drop-shadow(0 28px 40px rgba(0,0,0,.32)); }}
+  .caption {{ position:absolute; left:8%; bottom:7%; max-width:44%; font-size:{subtitle_size}px;
+    line-height:1.45; color:{text_color}; opacity:.84; border-top:2px solid rgba(255,255,255,.28);
+    padding-top:14px; }}
+</style>
+</head>
+<body>
+<div class="bg"></div>
+<div class="texture"></div>
+<div class="index">ABSTRACT / POSTER</div>
+<div id="key-visual" data-role="visual" class="visual">
+  <svg viewBox="0 0 600 560" aria-hidden="true">
+    <defs>
+      <linearGradient id="g-abstract" x1="0" x2="1" y1="0" y2="1">
+        <stop offset="0" stop-color="{accent}"/>
+        <stop offset=".5" stop-color="{text_color}" stop-opacity=".6"/>
+        <stop offset="1" stop-color="{secondary}"/>
+      </linearGradient>
+    </defs>
+    <path d="M96 338 C122 172 254 56 410 88 C536 114 582 262 522 372 C472 464 336 526 206 484 C108 452 78 412 96 338Z" fill="url(#g-abstract)" opacity=".84"/>
+    <path d="M160 88 L500 396" stroke="{accent}" stroke-width="18" opacity=".78"/>
+    <path d="M98 188 L468 118 L430 470 L72 412 Z" fill="none" stroke="{text_color}" stroke-width="10" opacity=".2"/>
+    <circle cx="302" cy="282" r="88" fill="{primary}" opacity=".72"/>
+    <circle cx="302" cy="282" r="42" fill="{accent}" opacity=".92"/>
+  </svg>
+</div>
+{caption_block}
+</body>
+</html>"""
+
 _FALLBACK_EVENT_INFO = """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -328,10 +386,12 @@ def _build_fallback_html(
     has_cta: bool = True,
     has_visual: bool = True,
     has_subtitle: bool = True,
+    has_headline: bool = True,
 ) -> str:
     """Produce a fallback poster, selecting a template that fits the content plan.
 
-    Four templates are available:
+    Five templates are available:
+    - visual_only:     visual-first poster with optional caption and no headline
     - type_only:       headline + accent block, no image, no CTA
     - image_led:       full-bleed image zone + title/subtitle below
     - event_info:      title + info + CTA, left accent bar, no image
@@ -340,6 +400,11 @@ def _build_fallback_html(
     title = escape(title, quote=True)
     subtitle = escape(subtitle, quote=True)
     cta = escape(cta, quote=True)
+    caption_block = (
+        f'<div id="subtitle" data-role="subhead" class="caption">{subtitle}</div>'
+        if has_subtitle and subtitle.strip()
+        else ""
+    )
 
     title_size = max(30, int(height * 0.064))
     ghost_size = max(96, int(height * 0.16))
@@ -351,7 +416,14 @@ def _build_fallback_html(
     grid_size = max(28, int(min(width, height) * 0.075))
 
     # Select template based on content characteristics.
-    if has_visual and has_cta:
+    if not has_headline and has_visual and not has_cta:
+        return _FALLBACK_VISUAL_ONLY.format(
+            width=width, height=height,
+            primary=primary, secondary=secondary, accent=accent, text_color=text_color,
+            subtitle_size=subtitle_size, meta_size=meta_size,
+            caption_block=caption_block,
+        )
+    elif has_visual and has_cta:
         # Full campaign: image + CTA (original template).
         return _FALLBACK_CTA_CAMPAIGN.format(
             width=width, height=height,

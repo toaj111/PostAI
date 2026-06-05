@@ -129,6 +129,39 @@ async def test_content_extractor_normalizes_layout_like_payload():
     assert state.poster_brief is not None
 
 
+async def test_content_extractor_keeps_abstract_llm_brief_without_fallback():
+    brief = PosterBriefV2(
+        poster_intent=PosterIntent(
+            poster_type="artistic",
+            communication_mode="evoke",
+            primary_goal="summer atmosphere",
+            tone=["minimal"],
+        ),
+        content_strategy=ContentStrategy(headline_policy="no_headline", cta_policy="omit"),
+        visual_subjects=[
+            VisualSubject(
+                id="summer-shapes",
+                role="shape",
+                description="abstract wave and sun geometry",
+                presence="required",
+                source="inferred",
+            )
+        ],
+    )
+    llm = FakeLLMClient([brief])
+    state = GraphState(user_prompt="Only abstract shapes and colors for a summer poster")
+
+    result = await ContentExtractor(llm_client=llm).run(state)
+
+    assert llm.calls == 1
+    assert state.poster_brief is not None
+    assert state.poster_brief.content_strategy.headline_policy == "no_headline"
+    assert any(element.id == "summer-shapes" for element in result.elements)
+    assert all(element.id != "title" for element in result.elements)
+    assert not any("LLM fallback" in warning for warning in state.warnings)
+    assert any("no-headline" in warning for warning in state.warnings)
+
+
 async def test_content_extractor_includes_reference_images_in_prompt():
     brief = _make_brief(headline="发布会", subhead="未来已来", cta="报名", goal="launch")
     llm = FakeLLMClient([brief])

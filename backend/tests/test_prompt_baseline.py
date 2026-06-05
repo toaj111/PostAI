@@ -31,6 +31,7 @@ from app.schemas.agents import (
     PosterMessage,
     StyleGuide,
     TypographySpec,
+    VisualSubject,
 )
 from app.schemas.layout import CanvasSpec, ElementType
 from app.schemas.state import GraphState, RenderResult
@@ -129,6 +130,64 @@ class TestContentExtractorBaseline:
         )
         # Should not raise.
         ContentExtractor()._validate_brief(brief)
+
+    def test_validate_accepts_no_headline_visual_anchor(self):
+        """Abstract no-headline briefs may validate through a required visual anchor."""
+        brief = PosterBriefV2(
+            poster_intent=PosterIntent(
+                poster_type="artistic",
+                primary_goal="summer mood",
+                tone=["minimal"],
+            ),
+            content_strategy=ContentStrategy(headline_policy="no_headline", cta_policy="omit"),
+            visual_subjects=[
+                VisualSubject(
+                    id="summer-shapes",
+                    role="shape",
+                    description="abstract sun and wave geometry",
+                    presence="required",
+                    source="inferred",
+                )
+            ],
+        )
+        ContentExtractor()._validate_brief(brief)
+
+    def test_repair_promotes_strongest_text_message(self):
+        """Repair promotes the strongest textual message before falling back."""
+        warnings: list[str] = []
+        brief = PosterBriefV2(
+            poster_intent=PosterIntent(primary_goal="conference poster"),
+            content_strategy=ContentStrategy(cta_policy="omit"),
+            messages=[
+                PosterMessage(
+                    id="subtitle",
+                    role="subhead",
+                    content="Future of AI",
+                    importance=7,
+                    presence="recommended",
+                    source="user",
+                ),
+                PosterMessage(
+                    id="details",
+                    role="body",
+                    content="June 2026",
+                    importance=5,
+                    presence="optional",
+                    source="inferred",
+                ),
+            ],
+        )
+
+        repaired = ContentExtractor()._repair_brief(
+            brief,
+            prompt="technology conference poster",
+            warnings=warnings,
+        )
+
+        promoted = next(message for message in repaired.messages if message.id == "subtitle")
+        assert promoted.presence == "required"
+        assert promoted.importance == 8
+        assert warnings and "promoted 'subtitle'" in warnings[-1]
 
     def test_cta_intent_detection(self):
         """_has_cta_intent correctly identifies prompts that need CTA."""
@@ -423,6 +482,46 @@ class TestLayoutPlannerBaseline:
         assert "Exhibition" in html
         assert ".cta" not in html  # No CTA in image-led template.
 
+    def test_fallback_uses_visual_only_template_for_no_headline_brief(self):
+        """No-headline abstract briefs should not regress to a synthetic title."""
+        state = GraphState(user_prompt="abstract summer mood", canvas=CanvasSpec(width=512, height=768))
+        state.content_plan = _plan_with_presence([
+            {"id": "main_visual", "content": "abstract wave", "priority": 7, "type": "image", "role": "visual_label", "presence": "required"},
+        ])
+        state.poster_brief = PosterBriefV2(
+            poster_intent=PosterIntent(
+                poster_type="artistic",
+                communication_mode="evoke",
+                primary_goal="summer mood",
+                tone=["minimal"],
+            ),
+            content_strategy=ContentStrategy(headline_policy="no_headline", cta_policy="omit"),
+            messages=[
+                PosterMessage(
+                    id="caption",
+                    role="subhead",
+                    content="warm tide, salt air",
+                    importance=6,
+                    presence="optional",
+                    source="inferred",
+                )
+            ],
+            visual_subjects=[
+                VisualSubject(
+                    id="main_visual",
+                    role="shape",
+                    description="abstract wave geometry",
+                    presence="required",
+                    source="inferred",
+                )
+            ],
+        )
+        state.style = _style_for_test()
+        html = SpatialLayoutPlanner()._run_fallback(state)
+        assert 'id="headline"' not in html
+        assert "warm tide, salt air" in html
+        assert ">Poster<" not in html
+
     def test_fallback_selects_event_info_when_cta_no_visual(self):
         """Event poster with CTA but no visual → event_info template."""
         state = GraphState(user_prompt="活动报名", canvas=CanvasSpec(width=512, height=768))
@@ -557,3 +656,13 @@ class TestContentExtractorPromptBaseline:
         assert "poster_intent" in system
         assert "content_strategy" in system
         assert "cta_policy" in system
+
+    async def test_llm_prompt_documents_no_headline_visual_path(self):
+        """System prompt should document the abstract no-headline path."""
+        client = FakePromptCaptureClient()
+        state = GraphState(user_prompt="abstract mood poster")
+        await ContentExtractor(llm_client=client).run(state)
+        system = client.captured_messages[0][0]["content"]
+        assert "zero required text messages is allowed" in system
+        assert "headline_policy='no_headline'" in system
+        assert "visual_subject with presence='required'" in system
