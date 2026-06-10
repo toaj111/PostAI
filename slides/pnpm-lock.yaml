@@ -8,12 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@slidev/cli':
-        specifier: ^52.16.0
-        version: 52.16.0(@nuxt/kit@3.21.7)(@types/markdown-it@14.1.2)(@types/node@22.19.20)(@vue/compiler-sfc@3.5.35)(lightningcss@1.32.0)(markdown-it@14.2.0)(playwright-chromium@1.60.0)(postcss@8.5.15)(rolldown@1.0.3)
-      '@slidev/theme-default':
-        specifier: latest
-        version: 0.25.0
       '@slidev/theme-seriph':
         specifier: latest
         version: 0.25.0
@@ -21,6 +15,18 @@ importers:
         specifier: ^3.5.33
         version: 3.5.35(typescript@6.0.3)
     devDependencies:
+      '@slidev/cli':
+        specifier: ^52.16.0
+        version: 52.16.0(@nuxt/kit@3.21.7)(@types/markdown-it@14.1.2)(@types/node@22.19.20)(@vue/compiler-sfc@3.5.35)(lightningcss@1.32.0)(markdown-it@14.2.0)(playwright-chromium@1.60.0)(postcss@8.5.15)(rolldown@1.0.3)
+      '@slidev/client':
+        specifier: ^52.16.0
+        version: 52.16.0(@nuxt/kit@3.21.7)(@vue/compiler-sfc@3.5.35)(lightningcss@1.32.0)(rolldown@1.0.3)(vite@8.0.16(@types/node@22.19.20)(jiti@2.7.0)(yaml@2.9.0))
+      '@slidev/theme-default':
+        specifier: latest
+        version: 0.25.0
+      markdown-it-github-alerts:
+        specifier: ^1.0.1
+        version: 1.0.1(markdown-it@14.2.0)
       playwright-chromium:
         specifier: ^1.60.0
         version: 1.60.0

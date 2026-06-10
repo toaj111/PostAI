@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>三国杀·谋定天下</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700;900&family=Noto+Sans+SC:wght@300;500;700&display=swap');
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            width: 768px;
+            height: 1152px;
+            overflow: hidden;
+            font-family: 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: #1A1100;
+            color: #F5E6C8;
+        }
+
+        #poster-canvas {
+            position: relative;
+            width: 768px;
+            height: 1152px;
+            overflow: hidden;
+            background: #1A1100;
+            isolation: isolate;
+        }
+
+        /* === FULL-BLEED BACKGROUND IMAGE === */
+        #key-visual {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 768px;
+            height: 1152px;
+            z-index: 1;
+            overflow: hidden;
+        }
+
+        #key-visual img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: 50% 30%;
+            display: block;
+        }
+
+        /* === DARK OVERLAY GRADIENT — creates depth & readability === */
+        #overlay-gradient {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 768px;
+            height: 1152px;
+            z-index: 2;
+            background:
+                linear-gradient(135deg,
+                    rgba(26, 17, 0, 0.85) 0%,
+                    rgba(26, 17, 0, 0.50) 35%,
+                    rgba(26, 17, 0, 0.25) 60%,
+                    rgba(26, 17, 0, 0.70) 85%,
+                    rgba(26, 17, 0, 0.92) 100%);
+            pointer-events: none;
+        }
+
+        /* === DIAGONAL ENERGY STRIP === */
+        #diagonal-strip {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 420px;
+            height: 1152px;
+            z-index: 3;
+            background: linear-gradient(175deg,
+                    rgba(196, 30, 58, 0.12) 0%,
+                    rgba(212, 165, 67, 0.08) 50%,
+                    transparent 100%);
+            clip-path: polygon(35% 0%, 100% 0%, 100% 100%, 5% 100%);
+            pointer-events: none;
+        }
+
+        /* === DIAGONAL ACCENT LINE (thin red) === */
+        #accent-line {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 768px;
+            height: 1152px;
+            z-index: 4;
+            pointer-events: none;
+        }
+
+        #accent-line::before {
+            content: '';
+            position: absolute;
+            top: 280px;
+            left: -20px;
+            width: 550px;
+            height: 2px;
+            background: linear-gradient(90deg, #C41E3A 0%, rgba(196, 30, 58, 0) 100%);
+            transform: rotate(-18deg);
+            transform-origin: left center;
+        }
+
+        #accent-line::after {
+            content: '';
+            position: absolute;
+            top: 460px;
+            left: 30px;
+            width: 380px;
+            height: 1px;
+            background: linear-gradient(90deg, #D4A543 0%, rgba(212, 165, 67, 0) 100%);
+            transform: rotate(-18deg);
+            transform-origin: left center;
+        }
+
+        /* === TEXT CONTENT — left side === */
+        #text-block {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 480px;
+            height: 1152px;
+            z-index: 5;
+            padding: 120px 54px 80px 58px;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            pointer-events: none;
+        }
+
+        /* === BRAND LABEL === */
+        #brand-label {
+            font-family: 'Noto Sans SC', sans-serif;
+            font-weight: 300;
+            font-size: 13px;
+            letter-spacing: 8px;
+            color: rgba(212, 165, 67, 0.7);
+            text-transform: uppercase;
+            margin-bottom: 22px;
+            padding-left: 4px;
+            border-left: 3px solid #C41E3A;
+            padding-left: 14px;
+            line-height: 1.4;
+        }
+
+        /* === HEADLINE === */
+        #headline {
+            font-family: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
+            font-weight: 900;
+            font-size: 72px;
+            line-height: 1.08;
+            color: #F5E6C8;
+            letter-spacing: 8px;
+            text-shadow: 0 4px 40px rgba(26, 17, 0, 0.8);
+            margin-bottom: 18px;
+            pointer-events: auto;
+        }
+
+        #headline .headline-accent {
+            color: #D4A543;
+            display: block;
+            font-size: 62px;
+            letter-spacing: 14px;
+            margin-top: 2px;
+        }
+
+        /* === SUBHEAD === */
+        #subhead {
+            font-family: 'Noto Sans SC', sans-serif;
+            font-weight: 500;
+            font-size: 18px;
+            line-height: 1.6;
+            color: #E8D5B0;
+            letter-spacing: 3px;
+            margin-bottom: 24px;
+            text-shadow: 0 2px 20px rgba(26, 17, 0, 0.7);
+            pointer-events: auto;
+        }
+
+        #subhead span {
+            display: inline-block;
+            border-bottom: 1px solid rgba(212, 165, 67, 0.35);
+            padding-bottom: 4px;
+        }
+
+        /* === BODY TEXT === */
+        #body {
+            font-family: 'Noto Sans SC', sans-serif;
+            font-weight: 300;
+            font-size: 14px;
+            line-height: 1.9;
+            color: rgba(245, 230, 200, 0.75);
+            letter-spacing: 1px;
+            max-width: 380px;
+            margin-bottom: 42px;
+            text-shadow: 0 2px 16px rgba(26, 17, 0, 0.6);
+            pointer-events: auto;
+        }
+
+        #body .mode-highlight {
+            color: #D4A543;
+            font-weight: 500;
+        }
+
+        /* === CTA BUTTON === */
+        #cta {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 36px 14px 32px;
+            border: 1.5px solid rgba(212, 165, 67, 0.6);
+            border-radius: 2px;
+            background: rgba(196, 30, 58, 0.15);
+            backdrop-filter: blur(4px);
+            color: #F5E6C8;
+            font-family: 'Noto Sans SC', sans-serif;
+            font-weight: 500;
+            font-size: 16px;
+            letter-spacing: 4px;
+            cursor: default;
+            transition: none;
+            pointer-events: auto;
+            width: fit-content;
+            box-shadow: 0 4px 30px rgba(26, 17, 0, 0.5);
+            text-decoration: none;
+        }
+
+        #cta::after {
+            content: '→';
+            font-size: 18px;
+            color: #D4A543;
+            letter-spacing: 0;
+        }
+
+        #cta::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 2px;
+            background: linear-gradient(135deg, rgba(212, 165, 67, 0.08), rgba(196, 30, 58, 0.08));
+            pointer-events: none;
+        }
+
+        /* === DECORATIVE PATTERN — bottom edge === */
+        #decorative-pattern {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 768px;
+            height: 110px;
+            z-index: 6;
+            overflow: hidden;
+            opacity: 0.35;
+            pointer-events: none;
+            mask-image: linear-gradient(to top, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0) 100%);
+            -webkit-mask-image: linear-gradient(to top, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0) 100%);
+        }
+
+        #decorative-pattern img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: 50% 100%;
+            display: block;
+        }
+
+        /* === SMALL TEXTURE / NOISE OVERLAY === */
+        #texture-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 768px;
+            height: 1152px;
+            z-index: 7;
+            pointer-events: none;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+            background-repeat: repeat;
+            background-size: 200px 200px;
+            mix-blend-mode: overlay;
+        }
+
+        /* === SMALL SEAL / CHOP ELEMENT === */
+        #seal-mark {
+            position: absolute;
+            bottom: 104px;
+            right: 52px;
+            z-index: 8;
+            width: 72px;
+            height: 72px;
+            border: 2px solid rgba(196, 30, 58, 0.5);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Noto Serif SC', serif;
+            font-size: 20px;
+            font-weight: 700;
+            color: rgba(196, 30, 58, 0.6);
+            letter-spacing: 2px;
+            transform: rotate(6deg);
+            background: rgba(26, 17, 0, 0.5);
+            backdrop-filter: blur(4px);
+            pointer-events: none;
+            line-height: 1.2;
+            text-align: center;
+            padding-top: 4px;
+            box-shadow: 0 0 30px rgba(196, 30, 58, 0.1);
+        }
+
+        /* === CORNER FRAME RULE === */
+        #corner-frame {
+            position: absolute;
+            top: 28px;
+            left: 28px;
+            width: calc(100% - 56px);
+            height: calc(100% - 56px);
+            z-index: 9;
+            pointer-events: none;
+            border: 1px solid rgba(212, 165, 67, 0.12);
+        }
+
+        #corner-frame::before {
+            content: '';
+            position: absolute;
+            top: -1px;
+            left: 60px;
+            width: 80px;
+            height: 1px;
+            background: rgba(212, 165, 67, 0.25);
+        }
+
+        #corner-frame::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            right: 60px;
+            width: 80px;
+            height: 1px;
+            background: rgba(212, 165, 67, 0.25);
+        }
+
+        /* === FIRE / FLAME GLOW AT BOTTOM === */
+        #flame-glow {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 768px;
+            height: 220px;
+            z-index: 2;
+            background: radial-gradient(ellipse 60% 70% at 50% 100%,
+                    rgba(196, 30, 58, 0.15) 0%,
+                    rgba(212, 165, 67, 0.05) 40%,
+                    transparent 75%);
+            pointer-events: none;
+        }
+
+        /* === RESPONSIVE FIXES === */
+        @media (max-width: 768px) {
+            html,
+            body {
+                width: 100%;
+                height: auto;
+                min-height: 1152px;
+                overflow: auto;
+            }
+            #poster-canvas {
+                width: 100%;
+                height: 1152px;
+                max-width: 768px;
+                margin: 0 auto;
+            }
+        }
+    </style>
+<style id="postai-canvas-guard">
+  html, body {
+    width: 768px !important;
+    min-width: 768px !important;
+    max-width: 768px !important;
+    height: 1152px !important;
+    min-height: 1152px !important;
+    max-height: 1152px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    transform: none !important;
+    transform-origin: top left !important;
+  }
+  body {
+    position: relative !important;
+  }
+</style>
+</head>
+<body>
+
+    <!-- POSTER CANVAS -->
+    <div id="poster-canvas">
+
+        <!-- 1. FULL-BLEED ILLUSTRATION (三位武将) -->
+        <div id="key-visual" data-role="illustration">
+            <img src="/assets/generated_illustrations/a26a379aef2e4af5bdf2a20f46a230c9_main_visual_67fab1e2.png"
+            alt="三国杀武将：关羽、诸葛亮、曹操"
+            loading="eager">
+        </div>
+
+        <!-- 2. DARK OVERLAY GRADIENT -->
+        <div id="overlay-gradient" data-role="overlay"></div>
+
+        <!-- 3. FLAME GLOW -->
+        <div id="flame-glow" data-role="atmosphere"></div>
+
+        <!-- 4. DIAGONAL ENERGY STRIP -->
+        <div id="diagonal-strip" data-role="accent-shape"></div>
+
+        <!-- 5. DIAGONAL ACCENT LINES -->
+        <div id="accent-line" data-role="accent-line"></div>
+
+        <!-- 6. TEXT BLOCK (left side) -->
+        <div id="text-block" data-role="text-content">
+
+            <div id="brand-label" data-role="label">三 国 杀 · 官 方 宣 传</div>
+
+            <h1 id="headline" data-role="headline">
+                三国杀
+                <span class="headline-accent">· 谋定天下</span>
+            </h1>
+
+            <div id="subhead" data-role="subhead">
+                <span>经典武将 · 策略对决 · 等你来战</span>
+            </div>
+
+            <div id="body" data-role="body">
+                <span class="mode-highlight">身份局</span> · <span class="mode-highlight">国战</span> · <span class="mode-highlight">1v1</span>
+                <br>
+                多种模式自由切换，百名武将任你指挥。
+            </div>
+
+            <div id="cta" data-role="cta">立即下载 决胜三国</div>
+
+        </div>
+
+        <!-- 7. DECORATIVE PATTERN (bottom edge) -->
+        <div id="decorative-pattern" data-role="pattern">
+            <img src="/assets/generated_illustrations/a26a379aef2e4af5bdf2a20f46a230c9_decorative_pattern_db1dd96e.png"
+            alt="三国杀卡牌装饰纹样"
+            loading="lazy">
+        </div>
+
+        <!-- 8. TEXTURE / NOISE OVERLAY -->
+        <div id="texture-overlay" data-role="texture"></div>
+
+        <!-- 9. SEAL MARK -->
+        <div id="seal-mark" data-role="seal">谋<br>定</div>
+
+        <!-- 10. CORNER FRAME -->
+        <div id="corner-frame" data-role="frame"></div>
+
+    </div>
+
+</body>
+</html>

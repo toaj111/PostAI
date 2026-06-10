@@ -43,6 +43,38 @@ fonts:
 
 ---
 
+# 小组成员与分工
+
+<div class="grid grid-cols-3 gap-6 mt-10">
+  <div class="border border-sky-300/25 bg-sky-400/8 p-6">
+    <div class="text-sm uppercase tracking-widest opacity-55">Member 1</div>
+    <div class="mt-3 text-2xl font-700 text-sky-300">成员1</div>
+    <div class="mt-4 text-lg leading-7 opacity-80">
+      分工
+    </div>
+  </div>
+  <div class="border border-amber-300/25 bg-amber-400/8 p-6">
+    <div class="text-sm uppercase tracking-widest opacity-55">Member 2</div>
+    <div class="mt-3 text-2xl font-700 text-amber-300">成员2</div>
+    <div class="mt-4 text-lg leading-7 opacity-80">
+      分工
+    </div>
+  </div>
+  <div class="border border-emerald-300/25 bg-emerald-400/8 p-6">
+    <div class="text-sm uppercase tracking-widest opacity-55">Member 3</div>
+    <div class="mt-3 text-2xl font-700 text-emerald-300">成员3</div>
+    <div class="mt-4 text-lg leading-7 opacity-80">
+      分工
+    </div>
+  </div>
+</div>
+
+<!--
+30 秒。快速过一遍小组成员和各自分工，不用展开讲。老师可以对照这份分工来提问。
+-->
+
+---
+
 # 背景问题
 
 ## 为什么不能只靠一次文生图？

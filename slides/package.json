@@ -8,12 +8,14 @@
     "export": "slidev export"
   },
   "dependencies": {
-    "@slidev/cli": "^52.16.0",
-    "@slidev/theme-default": "latest",
     "@slidev/theme-seriph": "latest",
     "vue": "^3.5.33"
   },
   "devDependencies": {
+    "@slidev/cli": "^52.16.0",
+    "@slidev/client": "^52.16.0",
+    "@slidev/theme-default": "latest",
+    "markdown-it-github-alerts": "^1.0.1",
     "playwright-chromium": "^1.60.0"
   }
 }
